@@ -35,6 +35,9 @@ class TrajectoryGenerator(
     private var lastTimeSeconds = 0.0
     private var currentDistance = 0.0
 
+    // GPS accuracy random walk — smooth transitions, not instant jumps
+    private var currentAccuracyMeters = 5.0f
+
     // Track geometry caching
     private val cornerZones = detectCornerZones()
 
@@ -122,7 +125,7 @@ class TrajectoryGenerator(
             altitudeMeters = altitude,
             bearingDeg = posOnTrack.bearingDeg.toFloat(),
             speedMps = currentSpeed.toFloat(),
-            accuracyMeters = 5.0f + (Math.random() * 3).toFloat(),  // GPS jitter
+            accuracyMeters = calculateAccuracy(currentSpeed, elapsedSeconds),
             timestampMillis = timestampMillis,
             elapsedDistanceMeters = currentDistance,
         )
@@ -176,6 +179,32 @@ class TrajectoryGenerator(
     }
 
     /**
+     * Calculate GPS accuracy with smooth random walk.
+     * Real GPS accuracy drifts slowly, correlated with speed and satellite geometry.
+     */
+    private fun calculateAccuracy(speed: Double, elapsedSeconds: Double): Float {
+        // Target accuracy varies: faster = slightly worse, but within realistic range
+        val speedPenalty = (speed - meanSpeedMps) * 0.5  // ±0.5m per m/s deviation
+        val baseTarget = 4.5f + speedPenalty.toFloat()
+
+        // Slow drift toward base target (convergence rate ~0.1 per step)
+        currentAccuracyMeters += (baseTarget - currentAccuracyMeters) * 0.1f
+
+        // Random walk step (±0.3m per update)
+        currentAccuracyMeters += ((Math.random() - 0.5) * 0.6).toFloat()
+
+        // Occasional degradation bursts (multi-path, canopy) — ~2% chance
+        if (Math.random() < 0.02) {
+            currentAccuracyMeters += (Math.random() * 5).toFloat()
+        }
+
+        // Clamp to realistic consumer GPS range
+        currentAccuracyMeters = currentAccuracyMeters.coerceIn(2.5f, 18.0f)
+
+        return currentAccuracyMeters
+    }
+
+    /**
      * Calculate altitude at a given track position.
      * Real tracks have slight elevation changes; we simulate gentle variation.
      */
@@ -200,6 +229,7 @@ class TrajectoryGenerator(
         currentSpeed = meanSpeedMps
         lastTimeSeconds = 0.0
         currentDistance = 0.0
+        currentAccuracyMeters = 5.0f
     }
 
     /**

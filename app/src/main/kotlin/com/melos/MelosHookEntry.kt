@@ -68,6 +68,9 @@ class MelosHookEntry : IXposedHookLoadPackage {
     private var lastTrajectoryPoint: TrajectoryPoint? = null
     private var sensorHookManager: SensorHookManager? = null
 
+    // Monotonically increasing timestamp tracking
+    private var lastLocationTimeMs = 0L
+
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         if (lpparam.packageName != WECHAT_PACKAGE) {
             return
@@ -204,6 +207,7 @@ class MelosHookEntry : IXposedHookLoadPackage {
 
     /**
      * Schedule periodic location updates to a registered listener.
+     * Adds jitter (±15%) to intervals to avoid detectable periodicity.
      */
     @Suppress("UNUSED_PARAMETER")
     private fun scheduleLocationUpdates(
@@ -211,7 +215,6 @@ class MelosHookEntry : IXposedHookLoadPackage {
         listener: android.location.LocationListener,
         intervalMs: Long,
     ) {
-        // Use Handler/Looper to post delayed callbacks
         try {
             val looperClass = XposedHelpers.findClass("android.os.Looper", lpparam.classLoader)
             val handlerClass = XposedHelpers.findClass("android.os.Handler", lpparam.classLoader)
@@ -225,7 +228,6 @@ class MelosHookEntry : IXposedHookLoadPackage {
                         val spoofed = getCurrentSpoofedLocation("gps")
                         listener.onLocationChanged(spoofed)
 
-                        // Also inject sensor events for consistency
                         lastTrajectoryPoint?.let { point ->
                             sensorHookManager?.injectSensorEvents(
                                 bearingDeg = point.bearingDeg,
@@ -233,12 +235,15 @@ class MelosHookEntry : IXposedHookLoadPackage {
                             )
                         }
 
-                        // Schedule next update
+                        // Jitter: ±15% variation on each interval
+                        val jitter = (Math.random() * 0.3 - 0.15).toFloat()
+                        val nextInterval = (intervalMs * (1.0 + jitter)).toLong()
+
                         XposedHelpers.callMethod(
                             handler,
                             "postDelayed",
                             this,
-                            intervalMs
+                            nextInterval
                         )
                     } catch (e: Throwable) {
                         XposedBridge.log("[$TAG] Error in location update: ${e.message}")
@@ -253,7 +258,7 @@ class MelosHookEntry : IXposedHookLoadPackage {
                 intervalMs
             )
 
-            XposedBridge.log("[$TAG] Scheduled location updates every ${intervalMs}ms")
+            XposedBridge.log("[$TAG] Scheduled location updates ~${intervalMs}ms (with jitter)")
         } catch (e: Throwable) {
             XposedBridge.log("[$TAG] Failed to schedule updates: ${e.message}")
         }
@@ -292,30 +297,38 @@ class MelosHookEntry : IXposedHookLoadPackage {
 
     /**
      * Create an Android Location object from a TrajectoryPoint.
+     * Uses real wall-clock timestamps to prevent detectable time anomalies.
      */
     private fun createLocationFromTrajectory(point: TrajectoryPoint, provider: String): Location {
+        val now = System.currentTimeMillis()
+
+        // Ensure monotonic timestamps — never go backward
+        val locationTime = if (now > lastLocationTimeMs) now else lastLocationTimeMs + 1
+        lastLocationTimeMs = locationTime
+
         val location = Location(provider).apply {
             latitude = point.position.lat
             longitude = point.position.lng
-            time = point.timestampMillis
+            time = locationTime
             accuracy = point.accuracyMeters
             altitude = point.altitudeMeters
             bearing = point.bearingDeg
             speed = point.speedMps
 
-            // Android 4.2+ fields
             if (android.os.Build.VERSION.SDK_INT >= 18) {
                 try {
-                    setElapsedRealtimeNanos(point.timestampMillis * 1_000_000L)
+                    // Use real elapsed realtime, not simulated
+                    val elapsedNanos = android.os.SystemClock.elapsedRealtimeNanos()
+                    setElapsedRealtimeNanos(elapsedNanos)
                 } catch (e: Throwable) {
                     // Ignore on older platforms
                 }
             }
         }
 
-        // Add extras for realism
+        // Extras with slight satellite count variation
         val extras = Bundle()
-        extras.putInt("satellites", 10 + (Math.random() * 4).toInt())
+        extras.putInt("satellites", 9 + (Math.random() * 5).toInt())
         location.extras = extras
 
         return location
