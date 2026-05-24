@@ -11,32 +11,27 @@ import java.io.IOException
 /**
  * Hides the root + LSPosed/Xposed environment from the target process.
  *
- * A course exercise tracker that detects a tampered device can reject the run
- * outright, which would defeat every other piece of spoofing in this module.
- * We therefore neutralise the *common, naive* detection vectors a mini-program
- * is likely to use:
+ * Neutralises both naive and moderately deep detection vectors:
  *
- *  - filesystem probes for su / Magisk / Xposed artefacts
- *  - shelling out to `su` / `which su` / busybox
- *  - querying PackageManager for Magisk / LSPosed manager packages
- *  - `Build.TAGS` / `Build.FINGERPRINT` carrying "test-keys"
- *  - `Class.forName("de.robv.android.xposed.…")` reflection checks
+ *  Layer 1 – filesystem / shell / package / build (initial release)
+ *  Layer 2 – stack-trace sanitisation, system-property spoofing,
+ *            developer/ADB settings hiding, ProcessBuilder blocking
  *
- * Out of scope (deep detection — would need native-level work): scanning
- * /proc/self/maps for injected .so files and walking Throwable stack traces
- * for Xposed frames. These remain residual risks.
+ * Remaining residual risks (native-level, out of scope):
+ *  - direct `openat("/proc/self/maps")` via JNI (can't hook from Java)
+ *  - scanning linker internals or SELinux policy attributes
  */
 object AntiDetection {
 
     private const val TAG = "Melos/Hide"
 
-    /** Path fragments that betray root / Xposed when probed via File.exists(). */
+    // ── Layer 1 constants ──────────────────────────────────────────────
+
     private val SUSPICIOUS_PATH_TOKENS = listOf(
         "magisk", "/.magisk", "busybox", "supersu", "superuser",
         "daemonsu", "xposed", "lsposed", "edxposed", "riru", "/data/adb", "frida",
     )
 
-    /** Package names of root / Xposed managers to hide from PackageManager. */
     private val BLACKLISTED_PACKAGES = setOf(
         "com.topjohnwu.magisk",
         "eu.chainfire.supersu",
@@ -52,7 +47,6 @@ object AntiDetection {
         "com.solohsu.android.edxp.manager",
     )
 
-    /** Class-name prefixes that, if resolvable, reveal an Xposed framework. */
     private val XPOSED_CLASS_TOKENS = listOf(
         "de.robv.android.xposed",
         "org.lsposed",
@@ -61,19 +55,54 @@ object AntiDetection {
         "edxposed",
     )
 
+    // ── Layer 2 constants ──────────────────────────────────────────────
+
+    /** Stack-trace class-name prefixes that reveal Xposed injection. */
+    private val XPOSED_STACK_PREFIXES = arrayOf(
+        "de.robv.android.xposed.",
+        "org.lsposed.",
+        "io.github.lsposed.",
+        "com.saurik.substrate.",
+        "edxposed.",
+        "com.swift.sandhook.",
+        "com.android.internal.XposedCompat.",
+    )
+
+    /** System properties that indicate a non-production build / debug state. */
+    private val SENSITIVE_PROPS = mapOf(
+        "ro.debuggable" to "0",
+        "ro.secure" to "1",
+        "ro.build.selinux" to "1",
+        "ro.adb.secure" to "1",
+        "persist.sys.usb.config" to "none",
+        "ro.build.type" to "user",
+    )
+
+    // ── Public entry point ─────────────────────────────────────────────
+
     fun installHooks(lpparam: XC_LoadPackage.LoadPackageParam) {
         val cl = lpparam.classLoader
         try {
+            // Layer 1
             hideRootFiles()
             hideRootExec()
             hidePackages(cl)
             sanitizeBuildProps()
             hideXposedClassLookup()
-            XposedBridge.log("[$TAG] anti-detection hooks installed")
+
+            // Layer 2
+            hideStackTraces()
+            hideSystemProperties()
+            hideSettingsSecure(cl)
+            hideProcessBuilder()
+
+            XposedBridge.log("[$TAG] anti-detection hooks (layer 1+2) installed")
         } catch (e: Throwable) {
             XposedBridge.log("[$TAG] install failed: ${e.message}")
         }
     }
+
+    // ── Layer 1 implementations ────────────────────────────────────────
 
     private fun isSuspiciousPath(path: String): Boolean {
         val p = path.lowercase()
@@ -88,7 +117,6 @@ object AntiDetection {
             c.contains("magisk") || c.contains(" su ") || c.startsWith("su ")
     }
 
-    /** java.io.File.exists() → false for known root/Xposed artefacts. */
     private fun hideRootFiles() {
         XposedHelpers.findAndHookMethod(
             File::class.java, "exists",
@@ -103,10 +131,6 @@ object AntiDetection {
         )
     }
 
-    /**
-     * Runtime.exec(...) → throw IOException for root-probing commands, exactly
-     * as a clean device would when `su` is not on the PATH.
-     */
     private fun hideRootExec() {
         val handler = object : XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
@@ -124,11 +148,9 @@ object AntiDetection {
         XposedHelpers.findAndHookMethod(Runtime::class.java, "exec", Array<String>::class.java, handler)
     }
 
-    /** Hide root/Xposed packages from PackageManager queries. */
     private fun hidePackages(cl: ClassLoader) {
         val pmClass = XposedHelpers.findClass("android.app.ApplicationPackageManager", cl)
 
-        // getPackageInfo(String, int) / getApplicationInfo(String, int) → NameNotFound
         val notFound = object : XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
                 val pkg = param.args[0] as? String ?: return
@@ -144,16 +166,13 @@ object AntiDetection {
             pmClass, "getApplicationInfo", String::class.java, Int::class.javaPrimitiveType, notFound
         )
 
-        // getInstalledPackages(int) / getInstalledApplications(int) → filter the list
         val filterList = object : XC_MethodHook() {
             override fun afterHookedMethod(param: MethodHookParam) {
                 val list = param.result as? List<*> ?: return
                 val cleaned = list.filter { item ->
                     val pn = try {
                         XposedHelpers.getObjectField(item, "packageName") as? String
-                    } catch (e: Throwable) {
-                        null
-                    }
+                    } catch (e: Throwable) { null }
                     pn == null || pn !in BLACKLISTED_PACKAGES
                 }
                 if (cleaned.size != list.size) {
@@ -169,7 +188,6 @@ object AntiDetection {
         )
     }
 
-    /** Replace test-keys signals in Build with stock release values. */
     private fun sanitizeBuildProps() {
         val tags = Build.TAGS
         if (tags != null && tags.contains("test-keys")) {
@@ -184,7 +202,6 @@ object AntiDetection {
         }
     }
 
-    /** Class.forName("de.robv.android.xposed.…") → ClassNotFoundException. */
     private fun hideXposedClassLookup() {
         val handler = object : XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
@@ -199,6 +216,122 @@ object AntiDetection {
             Class::class.java, "forName",
             String::class.java, Boolean::class.javaPrimitiveType, ClassLoader::class.java,
             handler
+        )
+    }
+
+    // ── Layer 2 implementations ────────────────────────────────────────
+
+    /**
+     * Sanitise stack traces from `Throwable.getStackTrace()` and
+     * `Thread.getStackTrace()` so that Xposed hook-dispatch frames are
+     * invisible.  Detection libraries commonly instantiate an Exception
+     * and inspect the call stack for Xposed class names.
+     */
+    private fun hideStackTraces() {
+        val filter = object : XC_MethodHook() {
+            override fun afterHookedMethod(param: MethodHookParam) {
+                val trace = param.result as? Array<*> ?: return
+                val cleaned = trace.filterNotNull().filter { frame ->
+                    val cls = (frame as? java.lang.StackTraceElement)?.className ?: return@filter true
+                    XPOSED_STACK_PREFIXES.none { cls.startsWith(it) }
+                }
+                if (cleaned.size != trace.size) {
+                    @Suppress("UNCHECKED_CAST")
+                    param.result = cleaned.toTypedArray()
+                }
+            }
+        }
+        XposedHelpers.findAndHookMethod(Throwable::class.java, "getStackTrace", filter)
+        XposedHelpers.findAndHookMethod(Thread::class.java, "getStackTrace", filter)
+    }
+
+    /**
+     * Intercept `android.os.SystemProperties.get(String)` to spoof sensitive
+     * properties that reveal debuggable / engineering builds.
+     */
+    private fun hideSystemProperties() {
+        runCatching {
+            val spClass = XposedHelpers.findClass("android.os.SystemProperties", null)
+            XposedHelpers.findAndHookMethod(
+                spClass, "get", String::class.java,
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val key = param.args[0] as? String ?: return
+                        SENSITIVE_PROPS[key]?.let { param.result = it }
+                    }
+                }
+            )
+        }.onFailure {
+            // SystemProperties might not be directly hookable on all ROMs
+            XposedBridge.log("[$TAG] SystemProperties hook skipped: ${it.message}")
+        }
+    }
+
+    /**
+     * Hide developer / ADB indicators from Settings.Secure and Settings.Global.
+     * A non-rooted, production device should report adb_enabled=0 and
+     * development_settings_enabled=0.
+     */
+    private fun hideSettingsSecure(cl: ClassLoader) {
+        val sensitiveSettings = setOf(
+            "adb_enabled",
+            "development_settings_enabled",
+            "adb_wifi_enabled",
+            "always_finish_activities",
+        )
+
+        val overrideSettings = object : XC_MethodHook() {
+            override fun afterHookedMethod(param: MethodHookParam) {
+                val name = param.args[0] as? String ?: return
+                if (name in sensitiveSettings) {
+                    param.result = "0"
+                }
+            }
+        }
+        val overrideInt = object : XC_MethodHook() {
+            override fun afterHookedMethod(param: MethodHookParam) {
+                val name = param.args[0] as? String ?: return
+                if (name in sensitiveSettings) {
+                    param.result = 0
+                }
+            }
+        }
+
+        // Settings.Secure
+        runCatching {
+            val secureClass = XposedHelpers.findClass("android.provider.Settings\$Secure", cl)
+            XposedHelpers.findAndHookMethod(secureClass, "getString",
+                android.content.ContentResolver::class.java, String::class.java, overrideSettings)
+            XposedHelpers.findAndHookMethod(secureClass, "getInt",
+                android.content.ContentResolver::class.java, String::class.java, Int::class.javaPrimitiveType, overrideInt)
+        }
+
+        // Settings.Global
+        runCatching {
+            val globalClass = XposedHelpers.findClass("android.provider.Settings\$Global", cl)
+            XposedHelpers.findAndHookMethod(globalClass, "getString",
+                android.content.ContentResolver::class.java, String::class.java, overrideSettings)
+            XposedHelpers.findAndHookMethod(globalClass, "getInt",
+                android.content.ContentResolver::class.java, String::class.java, Int::class.javaPrimitiveType, overrideInt)
+        }
+    }
+
+    /**
+     * Hook `ProcessBuilder.start()` — another vector for shell commands that
+     * bypasses `Runtime.exec()`.  Apply the same root-command heuristics.
+     */
+    private fun hideProcessBuilder() {
+        XposedHelpers.findAndHookMethod(
+            ProcessBuilder::class.java, "start",
+            object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    val pb = param.thisObject as? ProcessBuilder ?: return
+                    val cmd = pb.command().joinToString(" ")
+                    if (isRootCommand(cmd)) {
+                        param.throwable = IOException("Cannot run program \"su\": error=2, No such file or directory")
+                    }
+                }
+            }
         )
     }
 }

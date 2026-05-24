@@ -70,9 +70,13 @@
 - **GPS Hook 入口** (`com.melos.MelosHookEntry`)
   - 实现 `IXposedHookLoadPackage`
   - Hook `LocationManager.getLastKnownLocation()`
-  - Hook `LocationManager.requestLocationUpdates()`：`beforeHookedMethod` 拦截
-    真实注册（`param.result = null`），改向监听器推送合成轨迹，杜绝真实静止
-    fix 与伪造点交错
+  - Hook `requestLocationUpdates()` 全部重载（经典 String+long+float、API 31+ LocationRequest、
+    无 Looper / 有 Looper / Executor），一律 `beforeHookedMethod` + `param.result = null`
+    拦截真实注册，改向监听器推送合成轨迹
+  - Hook `getCurrentLocation()`（API 30+ provider 版 / API 31+ LocationRequest 版），
+    立即通过原始 Executor 向 Consumer 交付伪造位置
+  - Hook `flushLocations()` → 阻断，防止泄漏真实静止 fix
+  - PendingIntent 变体 → 阻断（listener 路径已覆盖正常用法）
   - Hook `FusedLocationProvider` (GMS) 的 `getLocations()`/`getLastLocation()`，
     共享 `recentLocations` 缓存保证二者一致
   - 内置标准 400m 椭圆跑道（`buildTongjiTrack()`：84.39m 直道 + 36.5m 半径弯道）
@@ -80,11 +84,16 @@
   - 测试位置：同济大学四平校区 (31.2506, 121.5045)
 
 - **反检测 / 环境隐藏** (`com.melos.hide.AntiDetection`)
-  - `File.exists()`：su / Magisk / Xposed 等路径返回 false
-  - `Runtime.exec()`：`su` 类命令抛 `IOException`（模拟无 root 设备）
-  - `PackageManager`：隐藏 Magisk/LSPosed 管理器包并过滤已安装列表
-  - `Build.TAGS` / `FINGERPRINT`：`test-keys` → `release-keys`
-  - `Class.forName()`：Xposed 框架类抛 `ClassNotFoundException`
+  - **Layer 1**（基础）:
+    - `File.exists()`：su / Magisk / Xposed 等路径返回 false
+    - `Runtime.exec()` / `ProcessBuilder.start()`：`su` 类命令抛 `IOException`
+    - `PackageManager`：隐藏 Magisk/LSPosed 管理器包并过滤已安装列表
+    - `Build.TAGS` / `FINGERPRINT`：`test-keys` → `release-keys`
+    - `Class.forName()`：Xposed 框架类抛 `ClassNotFoundException`
+  - **Layer 2**（深层）:
+    - `Throwable.getStackTrace()` / `Thread.getStackTrace()`：过滤 Xposed/LSPosed 帧
+    - `SystemProperties.get()`：`ro.debuggable` → `0`、`ro.secure` → `1` 等
+    - `Settings.Secure/Global`：`adb_enabled` → `0`、`development_settings_enabled` → `0`
 
 - **模块部署**
   - APK 构建成功 (6MB+)
@@ -125,10 +134,11 @@ app/src/main/kotlin/com/melos/
 - 🔴 **WiFi/基站交叉验证**：尚未 Hook `WifiManager`/`TelephonyManager`。防守方
   读取 WiFi BSSID 或基站 CID/LAC，会发现"GPS 在移动但接入点/基站恒定不变"的矛盾——
   当前最大缺口。
-- 🟡 **新式定位 API**：仅拦截经典 `requestLocationUpdates` 重载 + GMS fused；
-  `LocationRequest` + `Executor`（API 31+）等新重载未拦截。
-- 🟡 **深层 Root 检测**：扫描 `/proc/self/maps` 中注入的 `.so`、遍历 `Throwable`
-  堆栈寻找 Xposed 帧等需 native 层处理的检测未覆盖。
+- 🟡 **Native 层 maps 扫描**：通过 JNI 直接 `openat("/proc/self/maps")` 检查注入的
+  `.so` 文件属于 native 层检测，Java Xposed 无法拦截，需 Shamiko/Zygisk 白名单等
+  方案辅助。
+- 🟢 **服务端合理性校验**（运动时段、距离/时长比、轨迹去相关）—— 当前 9km/h 基本
+  合理，需实测后按阈值调参。
 
 ## 开发环境
 

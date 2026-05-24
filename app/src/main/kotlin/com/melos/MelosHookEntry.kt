@@ -4,6 +4,7 @@ import android.content.Context
 import android.hardware.SensorManager
 import android.location.Location
 import android.os.Bundle
+import android.app.PendingIntent
 import com.melos.hide.AntiDetection
 import com.melos.sensor.SensorHookManager
 import com.melos.sensor.SensorSimulator
@@ -128,6 +129,7 @@ class MelosHookEntry : IXposedHookLoadPackage {
             // Install all hooks
             hookLocationManager(lpparam)
             hookLocationListeners(lpparam)
+            hookNewLocationAPIs(lpparam)
             hookSensorManager(lpparam)
             hookFusedLocationProvider(lpparam)
 
@@ -223,6 +225,199 @@ class MelosHookEntry : IXposedHookLoadPackage {
                 }
             }
         )
+    }
+
+    /**
+     * Cover all LocationManager overloads not handled by hookLocationListeners:
+     *
+     *  - classic requestLocationUpdates(String, long, float, LocationListener) — no Looper
+     *  - API 30+ getCurrentLocation(...)
+     *  - API 31+ requestLocationUpdates(LocationRequest, ...)
+     *  - PendingIntent variants → block (our listener-based injection is sufficient)
+     *  - flushLocations() → block to prevent real-location leaks
+     */
+    private fun hookNewLocationAPIs(lpparam: XC_LoadPackage.LoadPackageParam) {
+        val lmClass = XposedHelpers.findClass(
+            "android.location.LocationManager", lpparam.classLoader
+        )
+
+        // ── 1. Classic: requestLocationUpdates(String, long, float, LocationListener) ──
+        //    This is the MOST COMMON overload used by apps.  It uses the caller's Looper.
+        runCatching {
+            XposedHelpers.findAndHookMethod(
+                lmClass,
+                "requestLocationUpdates",
+                String::class.java,
+                Long::class.javaPrimitiveType,
+                Float::class.javaPrimitiveType,
+                android.location.LocationListener::class.java,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val listener = param.args[3] as? android.location.LocationListener ?: return
+                        val minTime = param.args[1] as? Long ?: 1000L
+                        XposedBridge.log("[$TAG] requestLocationUpdates(classic, no looper) intercepted")
+                        param.result = null
+                        scheduleLocationUpdates(lpparam, listener, minTime)
+                    }
+                }
+            )
+        }.onFailure { XposedBridge.log("[$TAG] classic no-looper overload: ${it.message}") }
+
+        // ── 2. API 30+: getCurrentLocation(String, CancellationSignal, Executor, Consumer) ──
+        runCatching {
+            val cslClass = XposedHelpers.findClass(
+                "android.os.CancellationSignal", lpparam.classLoader
+            )
+            XposedHelpers.findAndHookMethod(
+                lmClass,
+                "getCurrentLocation",
+                String::class.java,
+                cslClass,
+                java.util.concurrent.Executor::class.java,
+                java.util.function.Consumer::class.java,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        @Suppress("UNCHECKED_CAST")
+                        val consumer = param.args[3] as? java.util.function.Consumer<Location> ?: return
+                        val executor = param.args[2] as? java.util.concurrent.Executor ?: return
+                        XposedBridge.log("[$TAG] getCurrentLocation(provider) intercepted")
+                        param.result = null
+                        val spoofed = getCurrentSpoofedLocation(param.args[0] as? String ?: "gps")
+                        executor.execute { consumer.accept(spoofed) }
+                    }
+                }
+            )
+        }.onFailure { XposedBridge.log("[$TAG] getCurrentLocation(provider): ${it.message}") }
+
+        // ── 3. API 31+: getCurrentLocation(LocationRequest, ...) ──
+        runCatching {
+            val lrClass = XposedHelpers.findClass(
+                "android.location.LocationRequest", lpparam.classLoader
+            )
+            val cslClass = XposedHelpers.findClass(
+                "android.os.CancellationSignal", lpparam.classLoader
+            )
+            XposedHelpers.findAndHookMethod(
+                lmClass,
+                "getCurrentLocation",
+                lrClass,
+                cslClass,
+                java.util.concurrent.Executor::class.java,
+                java.util.function.Consumer::class.java,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        @Suppress("UNCHECKED_CAST")
+                        val consumer = param.args[3] as? java.util.function.Consumer<Location> ?: return
+                        val executor = param.args[2] as? java.util.concurrent.Executor ?: return
+                        XposedBridge.log("[$TAG] getCurrentLocation(LocationRequest) intercepted")
+                        param.result = null
+                        val spoofed = getCurrentSpoofedLocation("gps")
+                        executor.execute { consumer.accept(spoofed) }
+                    }
+                }
+            )
+        }.onFailure { XposedBridge.log("[$TAG] getCurrentLocation(LocationRequest): ${it.message}") }
+
+        // ── 4. API 31+: requestLocationUpdates(LocationRequest, LocationListener, Looper) ──
+        runCatching {
+            val lrClass = XposedHelpers.findClass(
+                "android.location.LocationRequest", lpparam.classLoader
+            )
+            XposedHelpers.findAndHookMethod(
+                lmClass,
+                "requestLocationUpdates",
+                lrClass,
+                android.location.LocationListener::class.java,
+                android.os.Looper::class.java,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val listener = param.args[1] as? android.location.LocationListener ?: return
+                        XposedBridge.log("[$TAG] requestLocationUpdates(LocationRequest,Listener,Looper) intercepted")
+                        param.result = null
+                        scheduleLocationUpdates(lpparam, listener, 1000L)
+                    }
+                }
+            )
+        }.onFailure { XposedBridge.log("[$TAG] LocationRequest+Listener+Looper: ${it.message}") }
+
+        // ── 5. API 33+: requestLocationUpdates(LocationRequest, Executor, LocationListener) ──
+        runCatching {
+            val lrClass = XposedHelpers.findClass(
+                "android.location.LocationRequest", lpparam.classLoader
+            )
+            XposedHelpers.findAndHookMethod(
+                lmClass,
+                "requestLocationUpdates",
+                lrClass,
+                java.util.concurrent.Executor::class.java,
+                android.location.LocationListener::class.java,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val listener = param.args[2] as? android.location.LocationListener ?: return
+                        XposedBridge.log("[$TAG] requestLocationUpdates(LocationRequest,Executor,Listener) intercepted")
+                        param.result = null
+                        scheduleLocationUpdates(lpparam, listener, 1000L)
+                    }
+                }
+            )
+        }.onFailure { XposedBridge.log("[$TAG] LocationRequest+Executor+Listener: ${it.message}") }
+
+        // ── 6. PendingIntent variants → block ──
+        // Apps using PendingIntent for location updates typically run a Service that
+        // processes the intent.  We can't easily inject into that pipeline, so we
+        // block it.  Our listener-based hooks cover the normal usage path.
+        val blockPending = object : XC_MethodHook() {
+            override fun beforeHookedMethod(param: MethodHookParam) {
+                XposedBridge.log("[$TAG] requestLocationUpdates(PendingIntent) blocked")
+                param.result = null
+            }
+        }
+        runCatching {
+            XposedHelpers.findAndHookMethod(
+                lmClass, "requestLocationUpdates",
+                String::class.java,
+                Long::class.javaPrimitiveType,
+                Float::class.javaPrimitiveType,
+                android.app.PendingIntent::class.java,
+                blockPending
+            )
+        }.onFailure { /* best effort */ }
+        runCatching {
+            XposedHelpers.findAndHookMethod(
+                lmClass, "requestLocationUpdates",
+                Long::class.javaPrimitiveType,
+                Float::class.javaPrimitiveType,
+                android.location.Criteria::class.java,
+                android.app.PendingIntent::class.java,
+                blockPending
+            )
+        }.onFailure { /* best effort */ }
+        runCatching {
+            val lrClass = XposedHelpers.findClass(
+                "android.location.LocationRequest", lpparam.classLoader
+            )
+            XposedHelpers.findAndHookMethod(
+                lmClass, "requestLocationUpdates",
+                lrClass,
+                android.app.PendingIntent::class.java,
+                blockPending
+            )
+        }.onFailure { /* best effort */ }
+
+        // ── 7. flushLocations() → block ──
+        // Forces delivery of cached system fixes — would leak real (stationary) data.
+        runCatching {
+            XposedHelpers.findAndHookMethod(
+                lmClass, "flushLocations",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        param.result = null
+                    }
+                }
+            )
+        }.onFailure { /* best effort */ }
+
+        XposedBridge.log("[$TAG] New-style location API hooks installed")
     }
 
     /**
