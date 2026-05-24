@@ -26,17 +26,12 @@ class SensorSimulator(
         private const val SEA_LEVEL_PRESSURE_HPA = 1013.25f  // hPa
         private const val PRESSURE_LAPSE_RATE = 0.012f       // hPa/m, standard atmosphere
 
-        // Step detection thresholds
-        private const val STEP_THRESHOLD = 12.0f             // m/s², peak acceleration threshold
-        private const val STEP_MIN_INTERVAL_MS = 250L        // Minimum time between steps
-
         // Anti-detection: cadence variation bounds
         private const val CADENCE_VARIATION_PERCENT = 0.08f  // ±8% natural cadence drift
         private const val CADENCE_DRIFT_SPEED = 0.0003       // Slow drift rate for cadence
     }
 
     // State tracking
-    private var lastStepTimeMs = 0L
     private var totalSteps = 0
     private var currentAltitude = 10.0f
     private var currentCadence = targetStepsPerMinute
@@ -54,7 +49,6 @@ class SensorSimulator(
     private val noiseSeedZ = Math.random() * 1000.0
 
     fun reset() {
-        lastStepTimeMs = 0L
         totalSteps = 0
         currentAltitude = 10.0f
         startTimeMs = 0L
@@ -104,7 +98,6 @@ class SensorSimulator(
         val cadenceDrift = (sin(elapsedMs * CADENCE_DRIFT_SPEED) * CADENCE_VARIATION_PERCENT).toFloat()
         currentCadence = targetStepsPerMinute * (1f + cadenceDrift)
 
-        val timeSinceLastStep = timestampMs - lastStepTimeMs
         val stepIntervalMs = (60000.0 / currentCadence).toLong()
 
         // Generate step-like acceleration pattern
@@ -134,12 +127,6 @@ class SensorSimulator(
                 GRAVITY + 4f * peak * ampVar,
                 3f * peak * ampVar
             )
-        }
-
-        // Update step counter on heel strike
-        if (phase < 0.1f && timeSinceLastStep >= STEP_MIN_INTERVAL_MS) {
-            lastStepTimeMs = timestampMs
-            totalSteps++
         }
 
         return createSensorEvent(sensor, values, timestampMs, accuracy = 3)

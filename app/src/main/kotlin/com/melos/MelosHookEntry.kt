@@ -71,6 +71,9 @@ class MelosHookEntry : IXposedHookLoadPackage {
     // Monotonically increasing timestamp tracking
     private var lastLocationTimeMs = 0L
 
+    // Bearing change rate for gyroscope synchronization
+    private var lastBearingChangeRate = 0f
+
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         if (lpparam.packageName != WECHAT_PACKAGE) {
             return
@@ -256,7 +259,7 @@ class MelosHookEntry : IXposedHookLoadPackage {
                         lastTrajectoryPoint?.let { point ->
                             sensorHookManager?.injectSensorEvents(
                                 bearingDeg = point.bearingDeg,
-                                bearingChangeRate = 0f
+                                bearingChangeRate = lastBearingChangeRate
                             )
                         }
 
@@ -304,6 +307,21 @@ class MelosHookEntry : IXposedHookLoadPackage {
         // Generate next trajectory point
         val prevDist = lastTrajectoryPoint?.elapsedDistanceMeters ?: 0.0
         val point = trajectoryGenerator.nextPoint(elapsedSeconds)
+
+        // Compute bearing change rate from consecutive trajectory points
+        val prevPoint = lastTrajectoryPoint
+        if (prevPoint != null) {
+            val dtSec = elapsedSeconds - prevPoint.timestampMillis / 1000.0
+            if (dtSec > 0.01) {
+                var delta = point.bearingDeg - prevPoint.bearingDeg
+                if (delta > 180f) delta -= 360f
+                if (delta < -180f) delta += 360f
+                lastBearingChangeRate = delta / dtSec.toFloat()
+            } else {
+                lastBearingChangeRate = 0f
+            }
+        }
+
         lastTrajectoryPoint = point
 
         // Update sensor simulator state
@@ -349,11 +367,33 @@ class MelosHookEntry : IXposedHookLoadPackage {
                     // Ignore on older platforms
                 }
             }
+
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                try {
+                    setSpeedAccuracyMetersPerSecond((0.1f + Math.random() * 0.2).toFloat())
+                    setBearingAccuracyDegrees(
+                        if (point.speedMps > 0.5f) (15.0f + Math.random() * 15.0).toFloat()
+                        else 180.0f
+                    )
+                    setVerticalAccuracyMeters(point.accuracyMeters * 1.5f)
+                } catch (e: Throwable) {
+                    // Ignore on older platforms
+                }
+            }
         }
 
-        // Extras with slight satellite count variation
-        val extras = Bundle()
-        extras.putInt("satellites", 9 + (Math.random() * 5).toInt())
+        // Realistic GPS extras
+        val satellites = 9 + (Math.random() * 5).toInt()
+        val hdop = point.accuracyMeters / 5.5f
+        val vdop = hdop * (1.2f + Math.random() * 0.6).toFloat()
+        val pdop = Math.sqrt((hdop * hdop + vdop * vdop).toDouble()).toFloat()
+
+        val extras = Bundle().apply {
+            putInt("satellites", satellites)
+            putFloat("hdop", hdop)
+            putFloat("vdop", vdop)
+            putFloat("pdop", pdop)
+        }
         location.extras = extras
 
         return location
