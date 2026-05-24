@@ -6,6 +6,7 @@ import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import java.io.File
+import java.io.FileInputStream
 import java.io.IOException
 
 /**
@@ -16,10 +17,12 @@ import java.io.IOException
  *  Layer 1 – filesystem / shell / package / build (initial release)
  *  Layer 2 – stack-trace sanitisation, system-property spoofing,
  *            developer/ADB settings hiding, ProcessBuilder blocking
+ *  Layer 2+ – SELinux/verified-boot file+command blocking, full boot
+ *            property spoofing
  *
  * Remaining residual risks (native-level, out of scope):
  *  - direct `openat("/proc/self/maps")` via JNI (can't hook from Java)
- *  - scanning linker internals or SELinux policy attributes
+ *  - scanning linker internals from native code
  */
 object AntiDetection {
 
@@ -76,6 +79,24 @@ object AntiDetection {
         "ro.adb.secure" to "1",
         "persist.sys.usb.config" to "none",
         "ro.build.type" to "user",
+        "ro.boot.verifiedbootstate" to "green",
+        "ro.boot.vbmeta.device_state" to "locked",
+        "ro.bootloader.verifiedbootstate" to "green",
+        "ro.bootloader.vbmeta.device_state" to "locked",
+        "ro.boot.flash.locked" to "1",
+        "ro.boot.veritymode" to "enforcing",
+        "ro.boot.warranty_bit" to "0",
+        "ro.warranty_bit" to "0",
+        "sys.oem_unlock_allowed" to "0",
+    )
+
+    private val BLOCKED_FILE_PATHS = setOf(
+        "/sys/fs/selinux/enforce",
+        "/sys/fs/selinux/policyvers",
+        "/proc/self/attr/current",
+        "/proc/self/attr/prev",
+        "/proc/self/attr/exec",
+        "/proc/self/attr/fscreate",
     )
 
     // ── Public entry point ─────────────────────────────────────────────
@@ -96,7 +117,10 @@ object AntiDetection {
             hideSettingsSecure(cl)
             hideProcessBuilder()
 
-            XposedBridge.log("[$TAG] anti-detection hooks (layer 1+2) installed")
+            // Layer 2+
+            hideSELinux()
+
+            XposedBridge.log("[$TAG] anti-detection hooks (layer 1+2+) installed")
         } catch (e: Throwable) {
             XposedBridge.log("[$TAG] install failed: ${e.message}")
         }
@@ -139,7 +163,7 @@ object AntiDetection {
                     is Array<*> -> arg.filterIsInstance<String>().joinToString(" ")
                     else -> return
                 }
-                if (isRootCommand(cmd)) {
+                if (isRootCommand(cmd) || isSELinuxCommand(cmd)) {
                     param.throwable = IOException("Cannot run program \"su\": error=2, No such file or directory")
                 }
             }
@@ -327,11 +351,55 @@ object AntiDetection {
                 override fun beforeHookedMethod(param: MethodHookParam) {
                     val pb = param.thisObject as? ProcessBuilder ?: return
                     val cmd = pb.command().joinToString(" ")
-                    if (isRootCommand(cmd)) {
+                    if (isRootCommand(cmd) || isSELinuxCommand(cmd)) {
                         param.throwable = IOException("Cannot run program \"su\": error=2, No such file or directory")
                     }
                 }
             }
         )
+    }
+
+    internal fun isSELinuxCommand(cmd: String): Boolean {
+        val c = cmd.lowercase()
+        return c.contains("getenforce") ||
+            c.contains("sestatus") ||
+            c.contains("selinux/enforce") ||
+            c.contains("selinux/policyvers") ||
+            c.contains("/proc/self/attr/")
+    }
+
+    private fun hideSELinux() {
+        val blockFileRead = object : XC_MethodHook() {
+            override fun beforeHookedMethod(param: MethodHookParam) {
+                val path = when (val arg = param.args.firstOrNull()) {
+                    is String -> arg
+                    is File -> arg.absolutePath
+                    else -> return
+                }
+                if (path in BLOCKED_FILE_PATHS) {
+                    param.throwable = IOException("open: Permission denied")
+                }
+            }
+        }
+        runCatching {
+            XposedHelpers.findAndHookConstructor(FileInputStream::class.java, String::class.java, blockFileRead)
+        }
+        runCatching {
+            XposedHelpers.findAndHookConstructor(FileInputStream::class.java, File::class.java, blockFileRead)
+        }
+
+        XposedHelpers.findAndHookMethod(
+            File::class.java, "canRead",
+            object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    val file = param.thisObject as? File ?: return
+                    if (file.absolutePath in BLOCKED_FILE_PATHS) {
+                        param.result = false
+                    }
+                }
+            }
+        )
+
+        XposedBridge.log("[$TAG] SELinux/verified-boot hiding hooks installed")
     }
 }

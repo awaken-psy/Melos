@@ -186,6 +186,8 @@ class SensorHookManager(
      */
     private fun injectAllSensors() {
         val now = System.currentTimeMillis()
+        sensorSimulator.clockBaseMs = now
+        sensorSimulator.clockBaseNs = android.os.SystemClock.elapsedRealtimeNanos()
 
         injectStepDetectorEvents(now)
 

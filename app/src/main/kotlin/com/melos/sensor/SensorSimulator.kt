@@ -40,6 +40,9 @@ class SensorSimulator(
     private var currentCadence = targetStepsPerMinute
     private var lastStepDetectorFiredMs = 0L
 
+    var clockBaseMs: Long = 0L
+    var clockBaseNs: Long = 0L
+
     // Speed tracking for cadence-speed coupling
     private var currentSpeedMps = runningSpeedMps
     private var lastGpsTimeMs = 0L
@@ -62,6 +65,8 @@ class SensorSimulator(
         currentSpeedMps = runningSpeedMps
         lastGpsTimeMs = 0L
         lastStepDetectorFiredMs = 0L
+        clockBaseMs = 0L
+        clockBaseNs = 0L
     }
 
     fun setStartTime(timeMs: Long) {
@@ -301,7 +306,12 @@ class SensorSimulator(
 
         val timestampField = SensorEvent::class.java.getDeclaredField("timestamp")
         timestampField.isAccessible = true
-        timestampField.setLong(event, timestampMs * 1_000_000L)
+        val eventNs = if (clockBaseNs > 0L) {
+            clockBaseNs + (timestampMs - clockBaseMs) * 1_000_000L
+        } else {
+            timestampMs * 1_000_000L
+        }
+        timestampField.setLong(event, eventNs)
 
         val accuracyField = SensorEvent::class.java.getDeclaredField("accuracy")
         accuracyField.isAccessible = true

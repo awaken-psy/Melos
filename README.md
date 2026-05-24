@@ -25,6 +25,8 @@
 | 磁力计/陀螺仪 | SensorManager | 生成自洽的运动传感器数据 | ✅ 已实现 |
 | 融合定位 | GMS FusedLocationProvider | spoof getLocations/getLastLocation（结果互相一致） | ✅ 已实现 |
 | 环境检测 | 文件/包名/Build/反射 | 隐藏 Root 与 LSPosed/Xposed 痕迹 | ✅ 已实现 |
+| SELinux/Verified Boot | 系统属性/文件/命令 | 属性 spoof + SELinux 文件/命令阻断 | ✅ 已实现 |
+| 传感器时间戳 | SensorEvent.timestamp | 统一使用 elapsedRealtimeNanos 单调时钟 | ✅ 已实现 |
 
 ## 项目进度
 
@@ -96,6 +98,15 @@
     - `Throwable.getStackTrace()` / `Thread.getStackTrace()`：过滤 Xposed/LSPosed 帧
     - `SystemProperties.get()`：`ro.debuggable` → `0`、`ro.secure` → `1` 等
     - `Settings.Secure/Global`：`adb_enabled` → `0`、`development_settings_enabled` → `0`
+  - **Layer 2+**（SELinux / Verified Boot）:
+    - `SystemProperties` 补全：`ro.boot.verifiedbootstate` → `green`、`ro.boot.vbmeta.device_state` → `locked` 等 9 项引导链属性
+    - `FileInputStream` 拦截：`/sys/fs/selinux/enforce`、`/proc/self/attr/*` 等路径抛 `IOException`
+    - `File.canRead()` → false：上述敏感路径不可读
+    - `Runtime.exec()` / `ProcessBuilder` 扩展：`getenforce`、`sestatus` 等 SELinux 检测命令阻断
+
+- **传感器时间戳修复**
+  - `SensorEvent.timestamp` 从 `System.currentTimeMillis() × 1e6` 改为基于 `SystemClock.elapsedRealtimeNanos()` 的单调时钟
+  - GPS（`Location.elapsedRealtimeNanos`）和传感器共享同一时钟源，消除跨数据源时钟域不一致
 
 - **模块部署**
   - APK 构建成功 (6MB+)
@@ -170,8 +181,9 @@ collector/src/main/kotlin/com/melos/collector/
 - 🔴 **WiFi/基站交叉验证**：尚未 Hook `WifiManager`/`TelephonyManager`。防守方
   读取 WiFi BSSID 或基站 CID/LAC，会发现"GPS 在移动但接入点/基站恒定不变"的矛盾——
   当前最大缺口。
-- 🟢 **服务端合理性校验**（运动时段、距离/时长比、轨迹去相关）—— 当前 9km/h 基本
-  合理，需实测后按阈值调参。
+- 🟡 **服务端轨迹统计分析**：当前轨迹每圈高度重复（同一数学椭圆），速度分布较均匀。
+  防守方收集足够样本后可通过统计检验筛出异常。待轨迹拟真改进后缓解。
+- 🟢 **服务端合理性校验**（运动时段、距离/时长比）—— 当前 9km/h 基本合理。
 
 ## 开发环境
 

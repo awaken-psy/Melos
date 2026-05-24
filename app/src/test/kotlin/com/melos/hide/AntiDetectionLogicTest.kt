@@ -190,4 +190,56 @@ class AntiDetectionLogicTest {
     fun `isSuspiciousPath on clean package name returns false`() {
         assertFalse(AntiDetection.isSuspiciousPath("com.tencent.mm"))
     }
+
+    // ── isSELinuxCommand ────────────────────────────────────────────
+
+    @Test
+    fun `getenforce is selinux check`() {
+        assertTrue(AntiDetection.isSELinuxCommand("getenforce"))
+    }
+
+    @Test
+    fun `sestatus is selinux check`() {
+        assertTrue(AntiDetection.isSELinuxCommand("sestatus"))
+    }
+
+    @Test
+    fun `cat selinux enforce is selinux check`() {
+        assertTrue(AntiDetection.isSELinuxCommand("cat /sys/fs/selinux/enforce"))
+    }
+
+    @Test
+    fun `cat selinux policyvers is selinux check`() {
+        assertTrue(AntiDetection.isSELinuxCommand("cat /sys/fs/selinux/policyvers"))
+    }
+
+    @Test
+    fun `proc self attr current is selinux check`() {
+        assertTrue(AntiDetection.isSELinuxCommand("cat /proc/self/attr/current"))
+    }
+
+    @Test
+    fun `mixed case getenforce is detected`() {
+        assertTrue(AntiDetection.isSELinuxCommand("GetEnForce"))
+    }
+
+    @Test
+    fun `getenforce with args is detected`() {
+        assertTrue(AntiDetection.isSELinuxCommand("sh -c getenforce"))
+    }
+
+    @Test
+    fun `ls is not selinux check`() {
+        assertFalse(AntiDetection.isSELinuxCommand("ls /data"))
+    }
+
+    @Test
+    fun `empty string is not selinux check`() {
+        assertFalse(AntiDetection.isSELinuxCommand(""))
+    }
+
+    @Test
+    fun `cat proc version is not selinux check`() {
+        assertFalse(AntiDetection.isSELinuxCommand("cat /proc/version"))
+    }
 }

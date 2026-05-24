@@ -214,6 +214,64 @@ class SensorSimulatorTest {
         assertEquals(1.0f, event.values[0], 0.01f)
     }
 
+    // ── Timestamp conversion (elapsedRealtimeNanos) ────────────────
+
+    @Test
+    fun `default clock falls back to currentTimeMillis nanos`() {
+        // clockBaseNs = 0 → fallback to timestampMs * 1_000_000
+        val sensor = createMockSensor()
+        simulator.setStartTime(1000L)
+        val event = simulator.generateStepDetectorEvent(5000L, sensor)
+        assertNotNull(event)
+        assertEquals(5000L * 1_000_000L, event.timestamp)
+    }
+
+    @Test
+    fun `clock base converts current time to monotonic domain`() {
+        val sensor = createMockSensor()
+        simulator.setStartTime(1000L)
+        // Set clock base: wall=5000ms, monotonic=3_600_000_000_000ns (1h since boot)
+        simulator.clockBaseMs = 5000L
+        simulator.clockBaseNs = 3_600_000_000_000L
+        // Generate event at same wall time → should equal clockBaseNs
+        val event = simulator.generateStepDetectorEvent(5000L, sensor)
+        assertNotNull(event)
+        assertEquals(3_600_000_000_000L, event.timestamp)
+    }
+
+    @Test
+    fun `clock base preserves relative offset for past timestamps`() {
+        val sensor = createMockSensor()
+        simulator.setStartTime(1000L)
+        simulator.clockBaseMs = 5000L
+        simulator.clockBaseNs = 3_600_000_000_000L
+        // 500ms before base → event should be 500ms before monotonic base
+        val event = simulator.generateStepDetectorEvent(4500L, sensor)
+        assertNotNull(event)
+        assertEquals(3_600_000_000_000L - 500 * 1_000_000L, event.timestamp)
+    }
+
+    @Test
+    fun `clock base preserves relative offset for future timestamps`() {
+        val sensor = createMockSensor()
+        simulator.setStartTime(1000L)
+        simulator.clockBaseMs = 5000L
+        simulator.clockBaseNs = 3_600_000_000_000L
+        // 200ms after base
+        val event = simulator.generateStepDetectorEvent(5200L, sensor)
+        assertNotNull(event)
+        assertEquals(3_600_000_000_000L + 200 * 1_000_000L, event.timestamp)
+    }
+
+    @Test
+    fun `reset clears clock base`() {
+        simulator.clockBaseMs = 5000L
+        simulator.clockBaseNs = 3_600_000_000_000L
+        simulator.reset()
+        assertEquals(0L, simulator.clockBaseMs)
+        assertEquals(0L, simulator.clockBaseNs)
+    }
+
     // ── Helper ──────────────────────────────────────────────────────
 
     private fun createMockSensor(): android.hardware.Sensor {
