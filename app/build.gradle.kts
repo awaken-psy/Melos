@@ -33,6 +33,12 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 dependencies {
@@ -44,4 +50,6 @@ dependencies {
 
     // The trajectory engine is pure Kotlin/JVM logic, unit-testable without a device.
     testImplementation(libs.junit)
+    testImplementation(files("libs/xposed-api-82.jar"))
+    testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
 }

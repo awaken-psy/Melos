@@ -51,7 +51,8 @@ class TrackProfile(
      * so callers can pass an ever-growing cumulative distance for multi-lap runs.
      */
     fun pointAtDistance(distance: Double): PositionOnTrack {
-        val d = ((distance % perimeterMeters) + perimeterMeters) % perimeterMeters
+        var d = distance % perimeterMeters
+        if (d < 0.0) d += perimeterMeters
 
         // Last segment whose start is <= d. Linear scan is fine for a handful of waypoints.
         var idx = 0

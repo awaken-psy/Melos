@@ -180,32 +180,7 @@ class MelosHookEntry : IXposedHookLoadPackage {
             lpparam.classLoader
         )
 
-        // Hook requestLocationUpdates to capture listener registration
-        XposedHelpers.findAndHookMethod(
-            locationManagerClass,
-            "requestLocationUpdates",
-            String::class.java,     // provider
-            Criteria::class.java,   // criteria (nullable)
-            Long::class.javaPrimitiveType,  // minTime
-            Float::class.javaPrimitiveType, // minDistance
-            android.location.LocationListener::class.java,
-            android.os.Looper::class.java,
-            object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    val listener = param.args[4] as? android.location.LocationListener ?: return
-                    val minTime = param.args[2] as? Long ?: 1000L
-
-                    XposedBridge.log("[$TAG] requestLocationUpdates intercepted (criteria), blocking real provider")
-
-                    // Block the real registration so genuine (stationary) fixes
-                    // never reach the listener; feed it our trajectory instead.
-                    param.result = null
-                    scheduleLocationUpdates(lpparam, listener, minTime)
-                }
-            }
-        )
-
-        // Hook the overload with Criteria
+        // Hook requestLocationUpdates(String, long, float, LocationListener, Looper)
         XposedHelpers.findAndHookMethod(
             locationManagerClass,
             "requestLocationUpdates",
@@ -219,12 +194,38 @@ class MelosHookEntry : IXposedHookLoadPackage {
                     val listener = param.args[3] as? android.location.LocationListener ?: return
                     val minTime = param.args[1] as? Long ?: 1000L
 
-                    XposedBridge.log("[$TAG] requestLocationUpdates intercepted (no criteria), blocking real provider")
+                    XposedBridge.log("[$TAG] requestLocationUpdates(String,Long,Float,Listener,Looper) intercepted")
                     param.result = null
                     scheduleLocationUpdates(lpparam, listener, minTime)
                 }
             }
         )
+
+        // Hook requestLocationUpdates(Criteria, long, float, LocationListener, Looper)
+        runCatching {
+            val criteriaClass = XposedHelpers.findClass(
+                "android.location.Criteria", lpparam.classLoader
+            )
+            XposedHelpers.findAndHookMethod(
+                locationManagerClass,
+                "requestLocationUpdates",
+                criteriaClass,
+                Long::class.javaPrimitiveType,
+                Float::class.javaPrimitiveType,
+                android.location.LocationListener::class.java,
+                android.os.Looper::class.java,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val listener = param.args[3] as? android.location.LocationListener ?: return
+                        val minTime = param.args[1] as? Long ?: 1000L
+
+                        XposedBridge.log("[$TAG] requestLocationUpdates(Criteria,Long,Float,Listener,Looper) intercepted")
+                        param.result = null
+                        scheduleLocationUpdates(lpparam, listener, minTime)
+                    }
+                }
+            )
+        }.onFailure { XposedBridge.log("[$TAG] Criteria-based requestLocationUpdates hook skipped: ${it.message}") }
     }
 
     /**
@@ -658,8 +659,3 @@ class MelosHookEntry : IXposedHookLoadPackage {
         return location
     }
 }
-
-/**
- * Criteria class stub for LocationManager hooking (nullable param).
- */
-private class Criteria

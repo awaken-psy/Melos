@@ -83,8 +83,8 @@ class TrajectoryGenerator(
      * @param elapsedSeconds Total time since run start
      */
     fun nextPoint(elapsedSeconds: Double): TrajectoryPoint {
-        val dt = elapsedSeconds - lastTimeSeconds
-        lastTimeSeconds = elapsedSeconds
+        val dt = if (elapsedSeconds >= lastTimeSeconds) elapsedSeconds - lastTimeSeconds else 0.0
+        lastTimeSeconds = max(lastTimeSeconds, elapsedSeconds)
 
         // Determine target speed based on track position and natural variation
         val targetSpeed = calculateTargetSpeed(currentDistance, elapsedSeconds)

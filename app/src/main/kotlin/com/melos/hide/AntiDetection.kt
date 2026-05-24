@@ -104,13 +104,13 @@ object AntiDetection {
 
     // ── Layer 1 implementations ────────────────────────────────────────
 
-    private fun isSuspiciousPath(path: String): Boolean {
+    internal fun isSuspiciousPath(path: String): Boolean {
         val p = path.lowercase()
         if (p.endsWith("/su")) return true
         return SUSPICIOUS_PATH_TOKENS.any { p.contains(it) }
     }
 
-    private fun isRootCommand(cmd: String): Boolean {
+    internal fun isRootCommand(cmd: String): Boolean {
         val c = cmd.lowercase()
         return c == "su" || c.endsWith("/su") ||
             c.contains("which su") || c.contains("busybox") ||

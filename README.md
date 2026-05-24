@@ -127,6 +127,26 @@ collector/src/main/kotlin/com/melos/collector/
 ```
 构建：`./gradlew :collector:assembleDebug`
 
+### 🧪 单元测试
+
+134 个测试全部通过（`JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 ./gradlew testDebugUnitTest`）：
+
+| 模块 | 测试类 | 测试数 | 覆盖范围 |
+|------|--------|--------|----------|
+| app | `GeoUtilsTest` | 25 | haversine、bearing、destination、offsetMeters、lerp |
+| app | `TrackProfileTest` | 22 | 构造、闭合、pointAtDistance、越界包裹、bearing |
+| app | `TrajectoryGeneratorTest` | 22 | 轨迹生成、速度/warmup、海拔、精度、时间倒退保护、reset |
+| app | `SensorSimulatorTest` | 18 | 步数、速度-步频耦合、步进检测器时间戳、事件生成 |
+| app | `AntiDetectionLogicTest` | 35 | isSuspiciousPath / isRootCommand 全覆盖 |
+| collector | `DataSerializationTest` | 12 | WifiAp/CellData/CaptureData JSON 序列化 |
+
+本次测试中发现并修复了 5 个 bug：
+1. `requestLocationUpdates(Criteria,…)` hook 使用了错误的签名（死代码）
+2. `SensorEvent` 构造函数在非设备环境崩溃（改用无参构造 + fallback）
+3. `TrackProfile.pointAtDistance` 双重取模浮点精度丢失
+4. `TrajectoryGenerator.nextPoint` 时间倒退未防御（`dt` 变负导致距离回退）
+5. `AntiDetection` 谓词方法改为 `internal` 提升可测试性
+
 ### ⏳ 下一步
 
 1. **WiFi/基站数据采集**（`:collector` 模块）

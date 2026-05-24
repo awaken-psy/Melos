@@ -276,10 +276,20 @@ class SensorSimulator(
         timestampMs: Long,
         accuracy: Int,
     ): SensorEvent {
-        val event = SensorEvent::class.java.getDeclaredConstructor(
-            Int::class.javaPrimitiveType,
-            Int::class.javaPrimitiveType
-        ).newInstance(values.size, 0)
+        // SensorEvent has a package-private no-arg constructor in the SDK stub.
+        // On device, the runtime may have additional hidden constructors.
+        val event: SensorEvent = try {
+            val ctor = SensorEvent::class.java.getDeclaredConstructor()
+            ctor.isAccessible = true
+            ctor.newInstance()
+        } catch (_: Exception) {
+            val ctor = SensorEvent::class.java.getDeclaredConstructor(
+                Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType
+            )
+            ctor.isAccessible = true
+            ctor.newInstance(values.size, 0)
+        }
 
         val sensorField = SensorEvent::class.java.getDeclaredField("sensor")
         sensorField.isAccessible = true
