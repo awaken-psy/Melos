@@ -41,6 +41,9 @@ class SensorSimulator(
     private var currentAltitude = 10.0f
     private var currentCadence = targetStepsPerMinute
 
+    // Step detector timing for retroactive event injection
+    private var lastStepDetectorFiredMs = 0L
+
     // Timing
     private var startTimeMs = 0L
     private var elapsedDistanceMeters = 0.0
@@ -57,6 +60,7 @@ class SensorSimulator(
         startTimeMs = 0L
         elapsedDistanceMeters = 0.0
         currentCadence = targetStepsPerMinute
+        lastStepDetectorFiredMs = 0L
     }
 
     fun setStartTime(timeMs: Long) {
@@ -228,6 +232,40 @@ class SensorSimulator(
      * Get estimated step rate (steps per minute) over the last period.
      */
     fun getStepsPerMinute(): Float = targetStepsPerMinute
+
+    fun generateStepCounterEvent(
+        timestampMs: Long,
+        sensor: Sensor,
+    ): SensorEvent? {
+        if (totalSteps == 0) return null
+        return createSensorEvent(sensor, floatArrayOf(totalSteps.toFloat()), timestampMs, accuracy = 3)
+    }
+
+    fun generateStepDetectorEvent(
+        timestampMs: Long,
+        sensor: Sensor,
+    ): SensorEvent {
+        return createSensorEvent(sensor, floatArrayOf(1.0f), timestampMs, accuracy = 3)
+    }
+
+    fun getPendingStepDetectorTimestamps(currentTimeMs: Long): List<Long> {
+        val timestamps = mutableListOf<Long>()
+        val baseIntervalMs = (60000.0 / currentCadence).toLong()
+
+        if (lastStepDetectorFiredMs == 0L) {
+            lastStepDetectorFiredMs = startTimeMs
+        }
+
+        var nextStep = lastStepDetectorFiredMs + baseIntervalMs
+        while (nextStep <= currentTimeMs) {
+            timestamps.add(nextStep)
+            lastStepDetectorFiredMs = nextStep
+            val jitter = (sin(nextStep * 0.01 + noiseSeedX) * 0.05 * baseIntervalMs).toLong()
+            nextStep = nextStep + baseIntervalMs + jitter
+        }
+
+        return timestamps
+    }
 
     private fun createSensorEvent(
         sensor: Sensor,

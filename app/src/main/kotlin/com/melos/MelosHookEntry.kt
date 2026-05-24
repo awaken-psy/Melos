@@ -187,21 +187,46 @@ class MelosHookEntry : IXposedHookLoadPackage {
     }
 
     /**
-     * Hook FusedLocationProvider (Google Play Services) if present.
+     * Hook FusedLocationProvider (Google Play Services).
+     *
+     * Spoofs LocationResult so all fused location data returns our
+     * synthetic trajectory, covering apps that use GMS location APIs
+     * instead of platform LocationManager.
      */
     private fun hookFusedLocationProvider(lpparam: XC_LoadPackage.LoadPackageParam) {
         try {
-            XposedHelpers.findClass(
+            val locationResultClass = XposedHelpers.findClass(
                 "com.google.android.gms.location.LocationResult",
                 lpparam.classLoader
             )
 
-            XposedBridge.log("[$TAG] FusedLocationProvider detected")
+            // Hook getLocations() to return our spoofed locations
+            XposedHelpers.findAndHookMethod(
+                locationResultClass,
+                "getLocations",
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val spoofed = getCurrentSpoofedLocation("fused")
+                        @Suppress("UNCHECKED_CAST")
+                        param.result = arrayListOf(spoofed)
+                    }
+                }
+            )
 
-            // Note: Full FusedLocationProvider spoofing requires additional work
-            // The LocationListener hooks should cover most WeChat usage
+            // Hook getLastLocation() to return our spoofed location
+            XposedHelpers.findAndHookMethod(
+                locationResultClass,
+                "getLastLocation",
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        param.result = getCurrentSpoofedLocation("fused")
+                    }
+                }
+            )
+
+            XposedBridge.log("[$TAG] FusedLocationProvider hooks installed")
         } catch (e: Throwable) {
-            // FusedLocationProvider not available
+            XposedBridge.log("[$TAG] FusedLocationProvider not available: ${e.message}")
         }
     }
 

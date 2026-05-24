@@ -12,7 +12,8 @@ import de.robv.android.xposed.XposedHelpers
  * Hooks SensorManager to inject synthetic sensor data.
  *
  * Intercepts sensor registration and delivery to ensure our synthetic
- * data reaches the target application.
+ * data reaches the target application. Real sensor events are blocked
+ * to prevent sensor fusion conflicts.
  */
 class SensorHookManager(
     private val lpparam: de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam,
@@ -22,7 +23,6 @@ class SensorHookManager(
         private const val TAG = "Melos-SensorHook"
     }
 
-    // Track active sensor listeners for targeted injection
     private val activeListeners = mutableMapOf<SensorEventListener, SensorInfo>()
 
     fun installHooks() {
@@ -31,9 +31,6 @@ class SensorHookManager(
         XposedBridge.log("[$TAG] Sensor hooks installed")
     }
 
-    /**
-     * Hook registerListener to intercept and track sensor subscriptions.
-     */
     private fun hookRegisterListener() {
         val sensorManagerClass = XposedHelpers.findClass(
             "android.hardware.SensorManager",
@@ -46,31 +43,25 @@ class SensorHookManager(
             "registerListener",
             SensorEventListener::class.java,
             Sensor::class.java,
-            Int::class.javaPrimitiveType,  // samplingPeriodUs
-            Int::class.javaPrimitiveType,  // maxReportLatencyUs
+            Int::class.javaPrimitiveType,
+            Int::class.javaPrimitiveType,
             object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam) {
+                override fun beforeHookedMethod(param: MethodHookParam) {
                     val listener = param.args[0] as? SensorEventListener ?: return
                     val sensor = param.args[1] as? Sensor ?: return
                     val samplingPeriodUs = param.args[2] as? Int ?: return
 
-                    val registered = param.result as? Boolean ?: return
-                    if (!registered) return
+                    if (!isSpoofedSensor(sensor.type)) return
 
-                    val sensorType = sensor.type
-                    if (isSpoofedSensor(sensorType)) {
-                        activeListeners[listener] = SensorInfo(
-                            sensor = sensor,
-                            samplingPeriodUs = samplingPeriodUs,
-                            registrationTime = System.currentTimeMillis()
-                        )
+                    param.result = true  // Block real registration, report success
 
-                        XposedBridge.log("[$TAG] Tracked listener for sensor: ${getSensorName(sensorType)}")
+                    activeListeners[listener] = SensorInfo(
+                        sensor = sensor,
+                        samplingPeriodUs = samplingPeriodUs,
+                        registrationTime = System.currentTimeMillis()
+                    )
 
-                        // Optionally disable the real sensor to prevent conflicts
-                        // This depends on the detection system's behavior
-                        // param.result = false  // Uncomment to block real sensor
-                    }
+                    XposedBridge.log("[$TAG] Spoofed sensor (real blocked): ${getSensorName(sensor.type)}")
                 }
             }
         )
@@ -83,32 +74,27 @@ class SensorHookManager(
             Sensor::class.java,
             Int::class.javaPrimitiveType,
             object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam) {
+                override fun beforeHookedMethod(param: MethodHookParam) {
                     val listener = param.args[0] as? SensorEventListener ?: return
                     val sensor = param.args[1] as? Sensor ?: return
                     val samplingPeriodUs = param.args[2] as? Int ?: return
 
-                    val registered = param.result as? Boolean ?: return
-                    if (!registered) return
+                    if (!isSpoofedSensor(sensor.type)) return
 
-                    val sensorType = sensor.type
-                    if (isSpoofedSensor(sensorType)) {
-                        activeListeners[listener] = SensorInfo(
-                            sensor = sensor,
-                            samplingPeriodUs = samplingPeriodUs,
-                            registrationTime = System.currentTimeMillis()
-                        )
+                    param.result = true
 
-                        XposedBridge.log("[$TAG] Tracked listener (2-param) for: ${getSensorName(sensorType)}")
-                    }
+                    activeListeners[listener] = SensorInfo(
+                        sensor = sensor,
+                        samplingPeriodUs = samplingPeriodUs,
+                        registrationTime = System.currentTimeMillis()
+                    )
+
+                    XposedBridge.log("[$TAG] Spoofed sensor (real blocked): ${getSensorName(sensor.type)}")
                 }
             }
         )
     }
 
-    /**
-     * Hook unregisterListener to clean up our tracking.
-     */
     private fun hookUnregisterListener() {
         val sensorManagerClass = XposedHelpers.findClass(
             "android.hardware.SensorManager",
@@ -149,13 +135,12 @@ class SensorHookManager(
 
     /**
      * Inject synthetic sensor events to all tracked listeners.
-     * Should be called periodically (e.g., every 100ms) from a timer or within GPS hooks.
-     *
-     * @param bearingDeg Current heading (for magnetometer/gyroscope)
-     * @param bearingChangeRate Rate of heading change (deg/s, for gyroscope)
+     * Step detector events are retroactively fired for missed steps.
      */
     fun injectSensorEvents(bearingDeg: Float = 0f, bearingChangeRate: Float = 0f) {
         val now = System.currentTimeMillis()
+
+        injectStepDetectorEvents(now)
 
         activeListeners.forEach { (listener, info) ->
             try {
@@ -172,12 +157,15 @@ class SensorHookManager(
                     Sensor.TYPE_GYROSCOPE -> sensorSimulator.generateGyroscopeEvent(
                         now, info.sensor, bearingChangeRate
                     )
+                    Sensor.TYPE_STEP_COUNTER -> sensorSimulator.generateStepCounterEvent(
+                        now, info.sensor
+                    )
+                    Sensor.TYPE_STEP_DETECTOR -> null  // Handled by injectStepDetectorEvents
                     else -> null
                 }
 
                 event?.let {
                     listener.onSensorChanged(it)
-                    // Also call onAccuracyChanged occasionally
                     if (now % 5000 < info.samplingPeriodUs / 1000) {
                         listener.onAccuracyChanged(info.sensor, it.accuracy)
                     }
@@ -189,8 +177,29 @@ class SensorHookManager(
     }
 
     /**
-     * Check if we should spoof this sensor type.
+     * Retroactively fire step detector events for steps that occurred
+     * since the last injection. Step intervals include natural jitter.
      */
+    private fun injectStepDetectorEvents(now: Long) {
+        val pendingTimestamps = sensorSimulator.getPendingStepDetectorTimestamps(now)
+        if (pendingTimestamps.isEmpty()) return
+
+        val stepDetectorListeners = activeListeners.entries.filter {
+            it.value.sensor.type == Sensor.TYPE_STEP_DETECTOR
+        }
+
+        stepDetectorListeners.forEach { (listener, info) ->
+            pendingTimestamps.forEach { stepTime ->
+                try {
+                    val event = sensorSimulator.generateStepDetectorEvent(stepTime, info.sensor)
+                    listener.onSensorChanged(event)
+                } catch (e: Throwable) {
+                    XposedBridge.log("[$TAG] Error injecting step detector event: ${e.message}")
+                }
+            }
+        }
+    }
+
     private fun isSpoofedSensor(type: Int): Boolean {
         return type in listOf(
             Sensor.TYPE_ACCELEROMETER,
@@ -214,14 +223,8 @@ class SensorHookManager(
         }
     }
 
-    /**
-     * Get the count of actively tracked sensor listeners.
-     */
     fun getActiveListenerCount(): Int = activeListeners.size
 
-    /**
-     * Data class to track sensor listener registration details.
-     */
     data class SensorInfo(
         val sensor: Sensor,
         val samplingPeriodUs: Int,
