@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Melos"
 include(":app")
+include(":collector")
