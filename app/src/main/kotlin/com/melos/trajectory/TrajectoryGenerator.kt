@@ -87,7 +87,7 @@ class TrajectoryGenerator(
         lastTimeSeconds = elapsedSeconds
 
         // Determine target speed based on track position and natural variation
-        val targetSpeed = calculateTargetSpeed(currentDistance)
+        val targetSpeed = calculateTargetSpeed(currentDistance, elapsedSeconds)
 
         // Apply realistic acceleration limits
         val speedDelta = targetSpeed - currentSpeed
@@ -133,9 +133,10 @@ class TrajectoryGenerator(
 
     /**
      * Calculate target speed based on track geometry.
-     * Slow down for corners, speed up on straights.
+     * Applies warm-up ramp (quadratic) for first 30 seconds,
+     * slows down for corners, speeds up on straights.
      */
-    private fun calculateTargetSpeed(distance: Double): Double {
+    private fun calculateTargetSpeed(distance: Double, elapsedSeconds: Double): Double {
         val perimeter = trackProfile.perimeterMeters
         val relativeDist = distance % perimeter
 
@@ -158,7 +159,15 @@ class TrajectoryGenerator(
                         sin(distance * 0.03) * 0.3 +
                         sin(distance * 0.1) * 0.2) * speedVariation
 
-        return max(0.5, baseSpeed * (1 + variation))
+        // Warm-up: quadratic ramp from 0 over first 30 seconds
+        val warmupFactor = if (elapsedSeconds < 30.0) {
+            val t = elapsedSeconds / 30.0
+            t * t
+        } else {
+            1.0
+        }
+
+        return max(0.5, baseSpeed * (1 + variation) * warmupFactor)
     }
 
     /**

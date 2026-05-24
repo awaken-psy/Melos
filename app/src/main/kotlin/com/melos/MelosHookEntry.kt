@@ -256,10 +256,12 @@ class MelosHookEntry : IXposedHookLoadPackage {
                         val spoofed = getCurrentSpoofedLocation("gps")
                         listener.onLocationChanged(spoofed)
 
+                        // Update bearing for independent sensor injection loop
                         lastTrajectoryPoint?.let { point ->
-                            sensorHookManager?.injectSensorEvents(
-                                bearingDeg = point.bearingDeg,
-                                bearingChangeRate = lastBearingChangeRate
+                            sensorHookManager?.startSensorInjection()
+                            sensorHookManager?.updateBearing(
+                                point.bearingDeg,
+                                lastBearingChangeRate
                             )
                         }
 
@@ -349,42 +351,51 @@ class MelosHookEntry : IXposedHookLoadPackage {
         val locationTime = if (now > lastLocationTimeMs) now else lastLocationTimeMs + 1
         lastLocationTimeMs = locationTime
 
+        // GPS cold start: degrade accuracy for first 20 seconds
+        val runElapsedMs = if (simulator.getStartTime() > 0L) now - simulator.getStartTime() else 0L
+        val coldStartFactor = if (runElapsedMs in 1..20000) {
+            1.0f + (1.0f - runElapsedMs.toFloat() / 20000f) * 4.0f  // 5x at start → 1x at 20s
+        } else {
+            1.0f
+        }
+
+        val effectiveAccuracy = (point.accuracyMeters * coldStartFactor).coerceIn(2.5f, 50.0f)
+
         val location = Location(provider).apply {
             latitude = point.position.lat
             longitude = point.position.lng
             time = locationTime
-            accuracy = point.accuracyMeters
+            accuracy = effectiveAccuracy
             altitude = point.altitudeMeters
             bearing = point.bearingDeg
             speed = point.speedMps
 
             if (android.os.Build.VERSION.SDK_INT >= 18) {
                 try {
-                    // Use real elapsed realtime, not simulated
                     val elapsedNanos = android.os.SystemClock.elapsedRealtimeNanos()
                     setElapsedRealtimeNanos(elapsedNanos)
-                } catch (e: Throwable) {
-                    // Ignore on older platforms
-                }
+                } catch (e: Throwable) {}
             }
 
             if (android.os.Build.VERSION.SDK_INT >= 26) {
                 try {
-                    setSpeedAccuracyMetersPerSecond((0.1f + Math.random() * 0.2).toFloat())
+                    setSpeedAccuracyMetersPerSecond((0.1f + Math.random() * 0.2).toFloat() * coldStartFactor)
                     setBearingAccuracyDegrees(
-                        if (point.speedMps > 0.5f) (15.0f + Math.random() * 15.0).toFloat()
+                        if (point.speedMps > 0.5f) (15.0f + Math.random() * 15.0).toFloat() * coldStartFactor
                         else 180.0f
                     )
-                    setVerticalAccuracyMeters(point.accuracyMeters * 1.5f)
-                } catch (e: Throwable) {
-                    // Ignore on older platforms
-                }
+                    setVerticalAccuracyMeters(effectiveAccuracy * 1.5f)
+                } catch (e: Throwable) {}
             }
         }
 
-        // Realistic GPS extras
-        val satellites = 9 + (Math.random() * 5).toInt()
-        val hdop = point.accuracyMeters / 5.5f
+        // Realistic GPS extras with cold-start satellite ramp
+        val satellites = if (runElapsedMs in 1..20000) {
+            Math.max(3, (9.0 * runElapsedMs.toDouble() / 20000).toInt())
+        } else {
+            9 + (Math.random() * 5).toInt()
+        }
+        val hdop = effectiveAccuracy / 5.5f
         val vdop = hdop * (1.2f + Math.random() * 0.6).toFloat()
         val pdop = Math.sqrt((hdop * hdop + vdop * vdop).toDouble()).toFloat()
 

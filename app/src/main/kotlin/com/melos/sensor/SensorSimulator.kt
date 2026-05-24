@@ -13,40 +13,45 @@ import kotlin.math.PI
  *
  * Manages all synthetic sensor data generation and injection to ensure
  * multi-sensor temporal consistency (GPS, accelerometer, barometer, etc.).
+ *
+ * Anti-detection features:
+ * - Speed-cadence coupling: cadence derived from GPS speed, not independent
+ * - Hash-based white noise: flat spectrum, no discrete sin spectral lines
+ * - Slow sin drift preserved for low-frequency variations
  */
 class SensorSimulator(
-    private val targetStepsPerMinute: Float = 160f, // Typical jogging cadence
-    private val runningSpeedMps: Float = 2.5f,      // ~9 km/h, typical jog
+    private val targetStepsPerMinute: Float = 160f,
+    private val runningSpeedMps: Float = 2.5f,
 ) {
     companion object {
         private const val TAG = "Melos-Sensor"
 
-        // Physical constants
-        private const val GRAVITY = 9.81f                    // m/s²
-        private const val SEA_LEVEL_PRESSURE_HPA = 1013.25f  // hPa
-        private const val PRESSURE_LAPSE_RATE = 0.012f       // hPa/m, standard atmosphere
+        private const val GRAVITY = 9.81f
+        private const val SEA_LEVEL_PRESSURE_HPA = 1013.25f
+        private const val PRESSURE_LAPSE_RATE = 0.012f
 
-        // Anti-detection: cadence variation bounds
-        private const val CADENCE_VARIATION_PERCENT = 0.08f  // ±8% natural cadence drift
-        private const val CADENCE_DRIFT_SPEED = 0.0003       // Slow drift rate for cadence
+        private const val CADENCE_VARIATION_PERCENT = 0.08f
+        private const val CADENCE_DRIFT_SPEED = 0.0003
     }
 
     // State tracking
     private var totalSteps = 0
     private var currentAltitude = 10.0f
     private var currentCadence = targetStepsPerMinute
-
-    // Step detector timing for retroactive event injection
     private var lastStepDetectorFiredMs = 0L
+
+    // Speed tracking for cadence-speed coupling
+    private var currentSpeedMps = runningSpeedMps
+    private var lastGpsTimeMs = 0L
 
     // Timing
     private var startTimeMs = 0L
     private var elapsedDistanceMeters = 0.0
 
-    // Anti-detection: seed offsets for deterministic-looking but varied noise
-    private val noiseSeedX = Math.random() * 1000.0
-    private val noiseSeedY = Math.random() * 1000.0
-    private val noiseSeedZ = Math.random() * 1000.0
+    // Noise seeds for pseudoNoise (Long for hash mixing)
+    private val noiseSeedX = (Math.random() * Long.MAX_VALUE).toLong()
+    private val noiseSeedY = (Math.random() * Long.MAX_VALUE).toLong()
+    private val noiseSeedZ = (Math.random() * Long.MAX_VALUE).toLong()
 
     fun reset() {
         totalSteps = 0
@@ -54,6 +59,8 @@ class SensorSimulator(
         startTimeMs = 0L
         elapsedDistanceMeters = 0.0
         currentCadence = targetStepsPerMinute
+        currentSpeedMps = runningSpeedMps
+        lastGpsTimeMs = 0L
         lastStepDetectorFiredMs = 0L
     }
 
@@ -65,7 +72,8 @@ class SensorSimulator(
 
     /**
      * Update simulation state with new position data.
-     * Called by GPS hook to maintain sensor-GPS consistency.
+     * Tracks speed for cadence coupling and increments steps with
+     * speed-dependent stride length.
      */
     fun updateWithGpsData(
         timestampMs: Long,
@@ -74,18 +82,28 @@ class SensorSimulator(
     ) {
         if (startTimeMs == 0L) startTimeMs = timestampMs
 
+        if (lastGpsTimeMs > 0) {
+            val dtSec = (timestampMs - lastGpsTimeMs) / 1000.0
+            if (dtSec > 0.01) {
+                currentSpeedMps = (distanceDeltaMeters / dtSec).toFloat()
+            }
+        }
+        lastGpsTimeMs = timestampMs
+
         currentAltitude = altitudeMeters.toFloat()
         elapsedDistanceMeters += distanceDeltaMeters
 
-        // Estimate step count from distance (average stride ~0.75m when jogging)
-        val estimatedSteps = (elapsedDistanceMeters / 0.75).toInt()
-        totalSteps = estimatedSteps
+        // Incremental steps with speed-dependent stride
+        val stride = (0.6f + currentSpeedMps * 0.15f).coerceIn(0.5f, 1.2f)
+        if (stride > 0 && distanceDeltaMeters > 0) {
+            totalSteps += (distanceDeltaMeters / stride).toInt()
+        }
     }
 
     /**
-     * Generate synthetic accelerometer event for a given timestamp.
-     * Simulates the characteristic dual-peak pattern of running steps
-     * with natural cadence drift and amplitude variation.
+     * Generate synthetic accelerometer event.
+     * Cadence is derived from current GPS speed (coupled), with slow sin drift.
+     * Mid-stance noise uses hash-based white noise instead of sin.
      */
     fun generateAccelerometerEvent(
         timestampMs: Long,
@@ -94,20 +112,21 @@ class SensorSimulator(
         val elapsedMs = timestampMs - startTimeMs
         if (elapsedMs < 0) return null
 
-        // Update cadence with slow drift (±8% over time)
+        // Speed-dependent cadence: 130 + speed*15 spm for running range
+        val speedCadence = if (currentSpeedMps > 1.0f) {
+            (130f + currentSpeedMps * 15f).coerceIn(100f, 200f)
+        } else {
+            110f
+        }
         val cadenceDrift = (sin(elapsedMs * CADENCE_DRIFT_SPEED) * CADENCE_VARIATION_PERCENT).toFloat()
-        currentCadence = targetStepsPerMinute * (1f + cadenceDrift)
+        currentCadence = speedCadence * (1f + cadenceDrift)
 
         val stepIntervalMs = (60000.0 / currentCadence).toLong()
 
-        // Generate step-like acceleration pattern
         val phase = (elapsedMs % stepIntervalMs).toFloat() / stepIntervalMs
-
-        // Amplitude variation per step (±15%) — no two steps are identical
         val ampVar = 1.0f + ((sin(elapsedMs * 0.007) * 0.1 + sin(elapsedMs * 0.013) * 0.05)).toFloat()
 
         val values = if (phase < 0.3f) {
-            // Heel strike: sharp upward spike
             val peak = sin(phase / 0.3f * Math.PI).toFloat()
             floatArrayOf(
                 0.5f * peak * ampVar,
@@ -115,11 +134,9 @@ class SensorSimulator(
                 -2f * peak * ampVar
             )
         } else if (phase < 0.6f) {
-            // Mid-stance: relatively stable with tiny noise
-            val micro = (sin(elapsedMs * 0.05) * 0.15).toFloat()
+            val micro = pseudoNoise(elapsedMs, noiseSeedX) * 0.15f
             floatArrayOf(micro, GRAVITY + micro * 0.3f, 1f + micro * 0.2f)
         } else {
-            // Toe-off: second, smaller peak
             val localPhase = (phase - 0.6f) / 0.4f
             val peak = sin(localPhase * Math.PI).toFloat()
             floatArrayOf(
@@ -133,30 +150,27 @@ class SensorSimulator(
     }
 
     /**
-     * Generate synthetic barometer (pressure) event.
-     * Pressure varies with altitude according to the barometric formula
-     * with slow sensor drift and per-sample noise.
+     * Generate synthetic barometer event.
+     * Low-frequency drift uses sin (physically appropriate).
+     * Per-sample noise uses hash-based white noise.
      */
     fun generateBarometerEvent(
         timestampMs: Long,
         sensor: Sensor,
     ): SensorEvent {
         val elapsedMs = timestampMs - startTimeMs
-
         val pressure = SEA_LEVEL_PRESSURE_HPA - (currentAltitude * PRESSURE_LAPSE_RATE / 100f)
 
-        // Slow atmospheric drift (±0.3 hPa over minutes) + fast noise (±0.05 hPa)
         val drift = (sin(elapsedMs * 0.0001) * 0.3).toFloat()
-        val noise = (sin(elapsedMs * 0.01 + noiseSeedX) * 0.05).toFloat()
+        val noise = pseudoNoise(elapsedMs, noiseSeedX) * 0.05f
         val values = floatArrayOf(pressure + drift + noise)
 
         return createSensorEvent(sensor, values, timestampMs, accuracy = 3)
     }
 
     /**
-     * Generate synthetic magnetometer (compass) event.
-     * Returns the device heading relative to magnetic north
-     * with smooth, correlated noise (not independent per-axis).
+     * Generate synthetic magnetometer event.
+     * Per-axis noise uses hash-based white noise for realistic spectrum.
      */
     fun generateMagnetometerEvent(
         timestampMs: Long,
@@ -167,26 +181,23 @@ class SensorSimulator(
 
         val intensity = 48.0f
         val inclination = sin(45.0 * PI / 180.0).toFloat()
-
         val bearingRad = bearingDeg * PI / 180.0f
         val horizontal = intensity * cos(inclination.toDouble()).toFloat()
         val x = horizontal * sin(bearingRad.toDouble()).toFloat()
         val y = horizontal * cos(bearingRad.toDouble()).toFloat()
         val z = intensity * sin(inclination.toDouble()).toFloat()
 
-        // Correlated smooth noise using seeded sin — axes share similar timestamps
-        val nx = (sin(elapsedMs * 0.008 + noiseSeedX) * 0.4).toFloat()
-        val ny = (sin(elapsedMs * 0.009 + noiseSeedY) * 0.4).toFloat()
-        val nz = (sin(elapsedMs * 0.007 + noiseSeedZ) * 0.3).toFloat()
+        val nx = pseudoNoise(elapsedMs, noiseSeedX) * 0.4f
+        val ny = pseudoNoise(elapsedMs + 1, noiseSeedY) * 0.4f
+        val nz = pseudoNoise(elapsedMs + 2, noiseSeedZ) * 0.3f
 
         val values = floatArrayOf(x + nx, y + ny, z + nz)
-
         return createSensorEvent(sensor, values, timestampMs, accuracy = 2)
     }
 
     /**
      * Generate synthetic gyroscope event.
-     * Simulates rotation rate changes during running with amplitude variation.
+     * Amplitude envelope uses sin (slow variation, physically appropriate).
      */
     fun generateGyroscopeEvent(
         timestampMs: Long,
@@ -194,11 +205,8 @@ class SensorSimulator(
         bearingChangeRate: Float = 0f,
     ): SensorEvent {
         val elapsedMs = timestampMs - startTimeMs
-
         val swayFreq = 2.0f * Math.PI.toFloat() * currentCadence / 60.0f
         val swayPhase = (timestampMs / 1000.0f * swayFreq) % (2 * Math.PI.toFloat())
-
-        // Amplitude variation synced with cadence drift
         val ampVar = 1.0f + sin(elapsedMs * 0.0004).toFloat() * 0.2f
 
         val values = floatArrayOf(
@@ -210,15 +218,9 @@ class SensorSimulator(
         return createSensorEvent(sensor, values, timestampMs, accuracy = 3)
     }
 
-    /**
-     * Get current step count since start.
-     */
     fun getStepCount(): Int = totalSteps
 
-    /**
-     * Get estimated step rate (steps per minute) over the last period.
-     */
-    fun getStepsPerMinute(): Float = targetStepsPerMinute
+    fun getStepsPerMinute(): Float = currentCadence
 
     fun generateStepCounterEvent(
         timestampMs: Long,
@@ -247,11 +249,25 @@ class SensorSimulator(
         while (nextStep <= currentTimeMs) {
             timestamps.add(nextStep)
             lastStepDetectorFiredMs = nextStep
-            val jitter = (sin(nextStep * 0.01 + noiseSeedX) * 0.05 * baseIntervalMs).toLong()
+            val jitter = (pseudoNoise(nextStep, noiseSeedX) * 0.05 * baseIntervalMs).toLong()
             nextStep = nextStep + baseIntervalMs + jitter
         }
 
         return timestamps
+    }
+
+    /**
+     * Hash-based pseudo-random noise producing flat white noise spectrum.
+     * Unlike sin() which produces discrete spectral lines, this generates
+     * a continuous spectrum indistinguishable from real sensor noise under
+     * frequency analysis. Deterministic for same inputs (reproducible).
+     */
+    private fun pseudoNoise(t: Long, seed: Long): Float {
+        var h = t xor (seed * 0x517cc1b727220a95L)
+        h = ((h ushr 32) xor h) * 0x45d9f3bL
+        h = ((h ushr 32) xor h) * 0x45d9f3bL
+        h = (h ushr 32) xor h
+        return ((h and 0x7FFF).toFloat() / 0x7FFF) * 2.0f - 1.0f
     }
 
     private fun createSensorEvent(
@@ -260,13 +276,11 @@ class SensorSimulator(
         timestampMs: Long,
         accuracy: Int,
     ): SensorEvent {
-        // Use reflection to create SensorEvent since constructor is not public
         val event = SensorEvent::class.java.getDeclaredConstructor(
             Int::class.javaPrimitiveType,
             Int::class.javaPrimitiveType
         ).newInstance(values.size, 0)
 
-        // Set values via reflection
         val sensorField = SensorEvent::class.java.getDeclaredField("sensor")
         sensorField.isAccessible = true
         sensorField.set(event, sensor)
@@ -277,7 +291,6 @@ class SensorSimulator(
 
         val timestampField = SensorEvent::class.java.getDeclaredField("timestamp")
         timestampField.isAccessible = true
-        // Sensor timestamp is in nanoseconds
         timestampField.setLong(event, timestampMs * 1_000_000L)
 
         val accuracyField = SensorEvent::class.java.getDeclaredField("accuracy")
