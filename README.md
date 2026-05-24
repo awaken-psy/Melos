@@ -20,8 +20,10 @@
 | GPS 经纬度 | LocationManager | 生成符合围栏约束的轨迹坐标 | ✅ 已实现 |
 | 海拔高度 | GPS 高程 / 气压计 | 使海拔变化与场地地形一致 | ✅ 已实现 |
 | 步频 | 加速度计 | 模拟加速度波形，匹配目标步频 | ✅ 已实现 |
-| 运动轨迹 | GPS 点序列 | 生成自然的人跑轨迹（速度、方向合理） | ✅ 已实现 |
+| 运动轨迹 | GPS 点序列 | 标准 400m 椭圆跑道，弯道密集采样，自然速度/方向 | ✅ 已实现 |
 | 磁力计/陀螺仪 | SensorManager | 生成自洽的运动传感器数据 | ✅ 已实现 |
+| 融合定位 | GMS FusedLocationProvider | spoof getLocations/getLastLocation（结果互相一致） | ✅ 已实现 |
+| 环境检测 | 文件/包名/Build/反射 | 隐藏 Root 与 LSPosed/Xposed 痕迹 | ✅ 已实现 |
 
 ## 项目进度
 
@@ -68,10 +70,21 @@
 - **GPS Hook 入口** (`com.melos.MelosHookEntry`)
   - 实现 `IXposedHookLoadPackage`
   - Hook `LocationManager.getLastKnownLocation()`
-  - Hook `LocationListener.onLocationChanged()` 回调
-  - Hook `SensorManager.registerListener()`
+  - Hook `LocationManager.requestLocationUpdates()`：`beforeHookedMethod` 拦截
+    真实注册（`param.result = null`），改向监听器推送合成轨迹，杜绝真实静止
+    fix 与伪造点交错
+  - Hook `FusedLocationProvider` (GMS) 的 `getLocations()`/`getLastLocation()`，
+    共享 `recentLocations` 缓存保证二者一致
+  - 内置标准 400m 椭圆跑道（`buildTongjiTrack()`：84.39m 直道 + 36.5m 半径弯道）
   - 动态轨迹生成集成
-  - 测试位置：同济大学四平校区 (31.2503, 121.5045)
+  - 测试位置：同济大学四平校区 (31.2506, 121.5045)
+
+- **反检测 / 环境隐藏** (`com.melos.hide.AntiDetection`)
+  - `File.exists()`：su / Magisk / Xposed 等路径返回 false
+  - `Runtime.exec()`：`su` 类命令抛 `IOException`（模拟无 root 设备）
+  - `PackageManager`：隐藏 Magisk/LSPosed 管理器包并过滤已安装列表
+  - `Build.TAGS` / `FINGERPRINT`：`test-keys` → `release-keys`
+  - `Class.forName()`：Xposed 框架类抛 `ClassNotFoundException`
 
 - **模块部署**
   - APK 构建成功 (6MB+)
@@ -83,6 +96,8 @@
 ```
 app/src/main/kotlin/com/melos/
 ├── MelosHookEntry.kt              # 主入口，所有 Hook 的注册点
+├── hide/
+│   └── AntiDetection.kt           # Root/Xposed 环境隐藏
 ├── trajectory/
 │   ├── LatLng.kt                  # 经纬度数据类
 │   ├── GeoUtils.kt                # 地理计算工具
@@ -104,6 +119,16 @@ app/src/main/kotlin/com/melos/
    - 根据实际检测系统的阈值调整速度/步频/精度参数
    - 添加更多预设跑道模板
    - 优化角点检测算法
+
+### ⚠️ 已知残留风险
+
+- 🔴 **WiFi/基站交叉验证**：尚未 Hook `WifiManager`/`TelephonyManager`。防守方
+  读取 WiFi BSSID 或基站 CID/LAC，会发现"GPS 在移动但接入点/基站恒定不变"的矛盾——
+  当前最大缺口。
+- 🟡 **新式定位 API**：仅拦截经典 `requestLocationUpdates` 重载 + GMS fused；
+  `LocationRequest` + `Executor`（API 31+）等新重载未拦截。
+- 🟡 **深层 Root 检测**：扫描 `/proc/self/maps` 中注入的 `.so`、遍历 `Throwable`
+  堆栈寻找 Xposed 帧等需 native 层处理的检测未覆盖。
 
 ## 开发环境
 
