@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Melos</string>
+    <string name="xposed_description">注入合成定位轨迹，用于体育打卡定位检测的攻防对抗实验。</string>
+</resources>

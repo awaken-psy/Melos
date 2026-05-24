@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Packages this module wants to hook. WeChat hosts the mini-program runtime. -->
+    <string-array name="xposed_scope">
+        <item>com.tencent.mm</item>
+    </string-array>
+</resources>
