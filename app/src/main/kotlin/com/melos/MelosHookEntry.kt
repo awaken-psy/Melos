@@ -4,6 +4,7 @@ import android.content.Context
 import android.hardware.SensorManager
 import android.location.Location
 import android.os.Bundle
+import com.melos.hide.AntiDetection
 import com.melos.sensor.SensorHookManager
 import com.melos.sensor.SensorSimulator
 import com.melos.trajectory.GeoUtils
@@ -40,16 +41,45 @@ class MelosHookEntry : IXposedHookLoadPackage {
         private const val RUNNING_SPEED_MPS = 2.5f  // ~9 km/h
         private const val STEPS_PER_MINUTE = 160f
 
-        // Standard 400m running track at Tongji Siping Campus (approximate)
-        private val TONGJI_TRACK = TrackProfile(
-            name = "Tongji 400m Track",
-            waypoints = listOf(
-                LatLng(31.2503, 121.5045),  // Start/finish line
-                LatLng(31.2506, 121.5047),  // North corner
-                LatLng(31.2509, 121.5045),  // East corner
-                LatLng(31.2506, 121.5043),  // South corner
-            )
-        )
+        // Standard 400m running track at Tongji Siping Campus.
+        // Long axis oriented roughly North–South to match the real field.
+        private val TONGJI_TRACK = buildTongjiTrack()
+
+        /**
+         * Build an IAAF-style 400m track (lane 1): two 84.39 m straights joined
+         * by two 36.5 m-radius semicircular bends (~398 m perimeter). The bends
+         * are densely sampled so the polyline interpolation traces a smooth curve
+         * instead of the geometric diamond a hand-picked 4-point loop produces.
+         */
+        private fun buildTongjiTrack(): TrackProfile {
+            val center = LatLng(31.2506, 121.5045)
+            val halfStraight = 84.39 / 2.0   // metres, half of one straight
+            val radius = 36.5                // metres, bend radius
+            val arcSteps = 8                 // segments per semicircular bend
+
+            fun local(eastM: Double, northM: Double): LatLng =
+                GeoUtils.offsetMeters(center, eastM, northM)
+
+            val pts = ArrayList<LatLng>()
+            // West straight, south → north (east = -radius)
+            pts.add(local(-radius, -halfStraight))
+            pts.add(local(-radius, +halfStraight))
+            // North bend, west → east (φ: 180° → 0°), interior points only
+            for (i in 1 until arcSteps) {
+                val phi = Math.toRadians(180.0 - 180.0 * i / arcSteps)
+                pts.add(local(radius * Math.cos(phi), halfStraight + radius * Math.sin(phi)))
+            }
+            // East straight, north → south (east = +radius)
+            pts.add(local(+radius, +halfStraight))
+            pts.add(local(+radius, -halfStraight))
+            // South bend, east → west (φ: 0° → -180°), interior points only
+            for (i in 1 until arcSteps) {
+                val phi = Math.toRadians(-180.0 * i / arcSteps)
+                pts.add(local(radius * Math.cos(phi), -halfStraight + radius * Math.sin(phi)))
+            }
+            // TrackProfile closes the loop back to the first point automatically.
+            return TrackProfile(name = "Tongji 400m Track", waypoints = pts)
+        }
     }
 
     // Per-process simulation state (each app process gets its own instance)
@@ -68,6 +98,12 @@ class MelosHookEntry : IXposedHookLoadPackage {
     private var lastTrajectoryPoint: TrajectoryPoint? = null
     private var sensorHookManager: SensorHookManager? = null
 
+    // Recently emitted fixes, kept so fused getLocations()/getLastLocation()
+    // stay mutually consistent and can return a plausible short batch.
+    private var lastSpoofedLocation: Location? = null
+    private val recentLocations = mutableListOf<Location>()
+    private val maxRecentLocations = 12
+
     // Monotonically increasing timestamp tracking
     private var lastLocationTimeMs = 0L
 
@@ -82,6 +118,10 @@ class MelosHookEntry : IXposedHookLoadPackage {
         XposedBridge.log("[$TAG] WeChat detected, initializing Melos hooks...")
 
         try {
+            // Hide the root/Xposed environment first — if the tracker detects a
+            // tampered device it can reject the run before any spoofing matters.
+            AntiDetection.installHooks(lpparam)
+
             // Initialize sensor hook manager
             sensorHookManager = SensorHookManager(lpparam, simulator)
 
@@ -149,13 +189,15 @@ class MelosHookEntry : IXposedHookLoadPackage {
             android.location.LocationListener::class.java,
             android.os.Looper::class.java,
             object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam) {
+                override fun beforeHookedMethod(param: MethodHookParam) {
                     val listener = param.args[4] as? android.location.LocationListener ?: return
                     val minTime = param.args[2] as? Long ?: 1000L
 
-                    XposedBridge.log("[$TAG] Location listener registered, scheduling updates...")
+                    XposedBridge.log("[$TAG] requestLocationUpdates intercepted (criteria), blocking real provider")
 
-                    // Schedule periodic location updates
+                    // Block the real registration so genuine (stationary) fixes
+                    // never reach the listener; feed it our trajectory instead.
+                    param.result = null
                     scheduleLocationUpdates(lpparam, listener, minTime)
                 }
             }
@@ -171,11 +213,12 @@ class MelosHookEntry : IXposedHookLoadPackage {
             android.location.LocationListener::class.java,
             android.os.Looper::class.java,
             object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam) {
+                override fun beforeHookedMethod(param: MethodHookParam) {
                     val listener = param.args[3] as? android.location.LocationListener ?: return
                     val minTime = param.args[1] as? Long ?: 1000L
 
-                    XposedBridge.log("[$TAG] Location listener registered (no criteria), scheduling updates...")
+                    XposedBridge.log("[$TAG] requestLocationUpdates intercepted (no criteria), blocking real provider")
+                    param.result = null
                     scheduleLocationUpdates(lpparam, listener, minTime)
                 }
             }
@@ -203,26 +246,29 @@ class MelosHookEntry : IXposedHookLoadPackage {
                 lpparam.classLoader
             )
 
-            // Hook getLocations() to return our spoofed locations
+            // Hook getLocations() to return a short, chronologically-ordered
+            // batch of our recent fixes (oldest → newest), as a real fused
+            // result would when a couple of updates are coalesced.
             XposedHelpers.findAndHookMethod(
                 locationResultClass,
                 "getLocations",
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
-                        val spoofed = getCurrentSpoofedLocation("fused")
-                        @Suppress("UNCHECKED_CAST")
-                        param.result = arrayListOf(spoofed)
+                        getCurrentSpoofedLocation("fused")  // advance + cache one fresh fix
+                        val batch = recentLocations.takeLast(minOf(2, recentLocations.size))
+                        param.result = ArrayList(batch)
                     }
                 }
             )
 
-            // Hook getLastLocation() to return our spoofed location
+            // Hook getLastLocation() to return the most recent cached fix without
+            // advancing the trajectory, so it stays equal to getLocations().last().
             XposedHelpers.findAndHookMethod(
                 locationResultClass,
                 "getLastLocation",
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
-                        param.result = getCurrentSpoofedLocation("fused")
+                        param.result = lastSpoofedLocation ?: getCurrentSpoofedLocation("fused")
                     }
                 }
             )
@@ -336,8 +382,15 @@ class MelosHookEntry : IXposedHookLoadPackage {
             distanceDeltaMeters = distDelta
         )
 
-        // Build Location object from trajectory point
-        return createLocationFromTrajectory(point, provider)
+        // Build Location object from trajectory point, then cache it so the
+        // fused-provider hooks can return a consistent recent history.
+        val location = createLocationFromTrajectory(point, provider)
+        lastSpoofedLocation = location
+        recentLocations.add(location)
+        if (recentLocations.size > maxRecentLocations) {
+            recentLocations.removeAt(0)
+        }
+        return location
     }
 
     /**
