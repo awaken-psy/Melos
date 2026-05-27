@@ -17,6 +17,7 @@ class MapActivity : AppCompatActivity() {
 
         val pointsJson = intent.getStringExtra("points") ?: "[]"
         val venue = intent.getStringExtra("venue") ?: ""
+        val mode = intent.getStringExtra("mode") ?: "point"
 
         val webView = findViewById<WebView>(R.id.webView)
         webView.settings.javaScriptEnabled = true
@@ -25,11 +26,11 @@ class MapActivity : AppCompatActivity() {
         webView.webViewClient = WebViewClient()
         webView.webChromeClient = WebChromeClient()
 
-        val html = buildMapHtml(pointsJson, venue)
+        val html = if (mode == "trajectory") buildTrajectoryHtml(pointsJson, venue) else buildPointHtml(pointsJson, venue)
         webView.loadDataWithBaseURL("https://unpkg.com", html, "text/html", "UTF-8", null)
     }
 
-    private fun buildMapHtml(pointsJson: String, venue: String): String {
+    private fun buildPointHtml(pointsJson: String, venue: String): String {
         val escapedVenue = venue.replace("'", "\\'")
         return """
 <!DOCTYPE html>
@@ -82,6 +83,82 @@ else {
   var group = L.featureGroup(pts.map(function(p,i){
     return L.marker([p.lat, p.lng]);
   }));
+  map.fitBounds(group.getBounds().pad(0.3));
+}
+</script>
+</body>
+</html>
+""".trimIndent()
+    }
+
+    private fun buildTrajectoryHtml(pointsJson: String, venue: String): String {
+        val escapedVenue = venue.replace("'", "\\'")
+        return """
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  html,body,#map{height:100%;margin:0;padding:0;}
+  .start-marker {
+    background:#4CAF50;color:#fff;border-radius:50%;
+    width:20px;height:20px;line-height:20px;
+    text-align:center;font-size:11px;font-weight:bold;
+  }
+  .end-marker {
+    background:#F44336;color:#fff;border-radius:50%;
+    width:20px;height:20px;line-height:20px;
+    text-align:center;font-size:11px;font-weight:bold;
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+var pts = $pointsJson;
+if(pts.length === 0) { document.body.innerHTML='<h3 style="text-align:center;padding:40px">没有数据</h3>'; }
+else {
+  var latSum=0, lngSum=0;
+  pts.forEach(function(p){ latSum+=p.lat; lngSum+=p.lng; });
+  var center = [latSum/pts.length, lngSum/pts.length];
+
+  var map = L.map('map').setView(center, 17);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
+
+  var latlngs = pts.map(function(p){ return [p.lat, p.lng]; });
+
+  // Trajectory line
+  L.polyline(latlngs, {color:'#1976D2', weight:3, opacity:0.8}).addTo(map);
+
+  // Start marker
+  var startIcon = L.divIcon({className:'', html:'<div class="start-marker">S</div>', iconSize:[20,20], iconAnchor:[10,10]});
+  L.marker(latlngs[0], {icon: startIcon}).addTo(map)
+    .bindPopup('<b>起点</b><br>'
+      + pts[0].lat.toFixed(6) + ', ' + pts[0].lng.toFixed(6) + '<br>'
+      + 'WiFi: ' + pts[0].wifi + ' AP | 基站: ' + pts[0].cell + ' 小区');
+
+  // End marker
+  if(pts.length > 1) {
+    var endIcon = L.divIcon({className:'', html:'<div class="end-marker">E</div>', iconSize:[20,20], iconAnchor:[10,10]});
+    L.marker(latlngs[latlngs.length-1], {icon: endIcon}).addTo(map)
+      .bindPopup('<b>终点</b><br>'
+        + pts[pts.length-1].lat.toFixed(6) + ', ' + pts[pts.length-1].lng.toFixed(6) + '<br>'
+        + 'WiFi: ' + pts[pts.length-1].wifi + ' AP | 基站: ' + pts[pts.length-1].cell + ' 小区');
+  }
+
+  // Small dots for intermediate samples
+  if(pts.length > 2) {
+    for(var i=1; i<pts.length-1; i++) {
+      L.circleMarker(latlngs[i], {radius:2, color:'#1976D2', fillColor:'#1976D2', fillOpacity:0.5, weight:0}).addTo(map);
+    }
+  }
+
+  var group = L.featureGroup(pts.map(function(p){ return L.marker([p.lat, p.lng]); }));
   map.fitBounds(group.getBounds().pad(0.3));
 }
 </script>

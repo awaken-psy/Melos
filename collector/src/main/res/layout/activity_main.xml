@@ -47,15 +47,15 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="采集"
+            android:text="点采集"
             android:layout_marginEnd="4dp" />
 
         <Button
-            android:id="@+id/btnMap"
+            android:id="@+id/btnContinuous"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="地图"
+            android:text="连续采集"
             android:layout_marginHorizontal="4dp" />
 
         <Button
