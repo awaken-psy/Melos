@@ -83,6 +83,7 @@ class CollectorFragment : Fragment() {
         btnCapture.setOnClickListener { capturePoint() }
         btnContinuous.setOnClickListener { toggleContinuous() }
         view.findViewById<Button>(R.id.btnExport).setOnClickListener { showVenueDialog() }
+        view.findViewById<Button>(R.id.btnRefresh).setOnClickListener { refreshWifiAndCell(); updateStatus() }
     }
 
     override fun onResume() {

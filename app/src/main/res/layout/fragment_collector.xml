@@ -46,7 +46,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="点采集"
-            android:layout_marginEnd="4dp" />
+            android:layout_marginEnd="3dp" />
 
         <Button
             android:id="@+id/btnContinuous"
@@ -54,7 +54,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="连续采集"
-            android:layout_marginHorizontal="4dp" />
+            android:layout_marginHorizontal="3dp" />
 
         <Button
             android:id="@+id/btnExport"
@@ -62,7 +62,15 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="导出"
-            android:layout_marginStart="4dp" />
+            android:layout_marginHorizontal="3dp" />
+
+        <Button
+            android:id="@+id/btnRefresh"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="刷新"
+            android:layout_marginStart="3dp" />
     </LinearLayout>
 
     <View
