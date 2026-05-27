@@ -62,12 +62,25 @@ class TrackProfile(
 
         val into = d - cumulative[idx]
         val segLen = segmentLengths[idx]
-        val a = loop[idx]
-        val b = loop[idx + 1]
         val t = if (segLen > 0.0) (into / segLen).coerceIn(0.0, 1.0) else 0.0
-        return PositionOnTrack(
-            position = GeoUtils.lerp(a, b, t),
-            bearingDeg = GeoUtils.bearingDeg(a, b),
-        )
+
+        // Catmull-Rom control points from closed loop
+        val n = loop.size - 1
+        val cp0 = loop[Math.floorMod(idx - 1, n)]
+        val cp1 = loop[idx]
+        val cp2 = loop[idx + 1]
+        val cp3 = loop[Math.floorMod(idx + 2, n)]
+
+        val pos = GeoUtils.catmullRom(cp0, cp1, cp2, cp3, t)
+
+        // Bearing from spline tangent (numerical differentiation)
+        val eps = 0.001
+        val ta = (t - eps).coerceIn(0.0, 1.0)
+        val tb = (t + eps).coerceIn(0.0, 1.0)
+        val pa = GeoUtils.catmullRom(cp0, cp1, cp2, cp3, ta)
+        val pb = GeoUtils.catmullRom(cp0, cp1, cp2, cp3, tb)
+        val bearing = GeoUtils.bearingDeg(pa, pb)
+
+        return PositionOnTrack(position = pos, bearingDeg = bearing)
     }
 }

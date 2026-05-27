@@ -66,6 +66,24 @@ object GeoUtils {
     fun lerp(a: LatLng, b: LatLng, t: Double): LatLng =
         LatLng(a.lat + (b.lat - a.lat) * t, a.lng + (b.lng - a.lng) * t)
 
+    /**
+     * Catmull-Rom spline interpolation. Interpolates between [p1] and [p2]
+     * using [p0] and [p3] as neighbouring control points. [t] in [0, 1].
+     * Passes exactly through p1 (t=0) and p2 (t=1).
+     */
+    fun catmullRom(p0: LatLng, p1: LatLng, p2: LatLng, p3: LatLng, t: Double): LatLng {
+        val t2 = t * t
+        val t3 = t2 * t
+        return LatLng(
+            lat = 0.5 * (2 * p1.lat + (-p0.lat + p2.lat) * t
+                + (2 * p0.lat - 5 * p1.lat + 4 * p2.lat - p3.lat) * t2
+                + (-p0.lat + 3 * p1.lat - 3 * p2.lat + p3.lat) * t3),
+            lng = 0.5 * (2 * p1.lng + (-p0.lng + p2.lng) * t
+                + (2 * p0.lng - 5 * p1.lng + 4 * p2.lng - p3.lng) * t2
+                + (-p0.lng + 3 * p1.lng - 3 * p2.lng + p3.lng) * t3),
+        )
+    }
+
     // ── WGS-84 → GCJ-02 coordinate conversion ────────────────────────
 
     private const val GCJ_A = 6378245.0

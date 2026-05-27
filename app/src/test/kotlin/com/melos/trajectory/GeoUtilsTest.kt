@@ -291,4 +291,73 @@ class GeoUtilsTest {
         assertTrue("Beijing should be in China range", lat != 39.9042)
         assertTrue("Lng should shift", lng != 116.4074)
     }
+
+    // ── catmullRom ───────────────────────────────────────────────
+
+    @Test
+    fun `catmullRom at t=0 returns p1`() {
+        val p0 = LatLng(0.0, 0.0)
+        val p1 = LatLng(1.0, 1.0)
+        val p2 = LatLng(2.0, 3.0)
+        val p3 = LatLng(3.0, 2.0)
+        val result = GeoUtils.catmullRom(p0, p1, p2, p3, 0.0)
+        assertEquals(p1.lat, result.lat, 0.000001)
+        assertEquals(p1.lng, result.lng, 0.000001)
+    }
+
+    @Test
+    fun `catmullRom at t=1 returns p2`() {
+        val p0 = LatLng(0.0, 0.0)
+        val p1 = LatLng(1.0, 1.0)
+        val p2 = LatLng(2.0, 3.0)
+        val p3 = LatLng(3.0, 2.0)
+        val result = GeoUtils.catmullRom(p0, p1, p2, p3, 1.0)
+        assertEquals(p2.lat, result.lat, 0.000001)
+        assertEquals(p2.lng, result.lng, 0.000001)
+    }
+
+    @Test
+    fun `catmullRom midpoint is between p1 and p2`() {
+        val p1 = LatLng(0.0, 0.0)
+        val p2 = LatLng(0.002, 0.002)
+        val result = GeoUtils.catmullRom(LatLng(0.0, -0.001), p1, p2, LatLng(0.0, 0.003), 0.5)
+        val d1 = GeoUtils.haversineMeters(p1, result)
+        val d2 = GeoUtils.haversineMeters(result, p2)
+        assertTrue("Midpoint should be between endpoints", d1 > 0 && d2 > 0)
+    }
+
+    @Test
+    fun `catmullRom with collinear points equals lerp`() {
+        val p0 = LatLng(0.0, 0.0)
+        val p1 = LatLng(1.0, 1.0)
+        val p2 = LatLng(2.0, 2.0)
+        val p3 = LatLng(3.0, 3.0)
+        for (t in listOf(0.0, 0.25, 0.5, 0.75, 1.0)) {
+            val cr = GeoUtils.catmullRom(p0, p1, p2, p3, t)
+            val lr = GeoUtils.lerp(p1, p2, t)
+            assertEquals("Lat mismatch at t=$t", lr.lat, cr.lat, 0.0001)
+            assertEquals("Lng mismatch at t=$t", lr.lng, cr.lng, 0.0001)
+        }
+    }
+
+    @Test
+    fun `catmullRom produces smooth curve`() {
+        val pts = listOf(LatLng(0.0, 0.0), LatLng(0.001, 0.0), LatLng(0.001, 0.001), LatLng(0.0, 0.001))
+        // Generate dense points on a closed-loop Catmull-Rom and check distances between consecutive points
+        val samples = (0..100).map { i ->
+            val t = i / 100.0
+            val seg = (t * 4).toInt().coerceIn(0, 3)
+            val localT = (t * 4 - seg).coerceIn(0.0, 1.0)
+            val n = 4
+            val p0 = pts[Math.floorMod(seg - 1, n)]
+            val p1 = pts[seg]
+            val p2 = pts[(seg + 1) % n]
+            val p3 = pts[(seg + 2) % n]
+            GeoUtils.catmullRom(p0, p1, p2, p3, localT)
+        }
+        for (i in 1 until samples.size) {
+            val d = GeoUtils.haversineMeters(samples[i - 1], samples[i])
+            assertTrue("Consecutive points too far apart: ${d}m at i=$i", d < 50.0)
+        }
+    }
 }
