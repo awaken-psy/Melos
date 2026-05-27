@@ -111,6 +111,12 @@ class MelosHookEntry : IXposedHookLoadPackage {
     // Bearing change rate for gyroscope synchronization
     private var lastBearingChangeRate = 0f
 
+    // Thread-safe listener management: single shared location thread
+    private val registeredListeners = mutableListOf<android.location.LocationListener>()
+    private val listenersLock = Any()
+    private var sharedLocationThread: Thread? = null
+    private var fusedHooksInstalled = false
+
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         if (lpparam.packageName != WECHAT_PACKAGE) {
             return
@@ -274,6 +280,22 @@ class MelosHookEntry : IXposedHookLoadPackage {
                 }
             )
         }.onFailure { XposedBridge.log("[$TAG] Criteria-based requestLocationUpdates hook skipped: ${it.message}") }
+
+        // Hook removeUpdates(LocationListener) to clean up our tracking
+        runCatching {
+            XposedHelpers.findAndHookMethod(
+                locationManagerClass,
+                "removeUpdates",
+                android.location.LocationListener::class.java,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val listener = param.args[0] as? android.location.LocationListener ?: return
+                        removeLocationListener(listener)
+                        param.result = null
+                    }
+                }
+            )
+        }.onFailure { XposedBridge.log("[$TAG] removeUpdates hook skipped: ${it.message}") }
     }
 
     /**
@@ -484,32 +506,48 @@ class MelosHookEntry : IXposedHookLoadPackage {
      * instead of platform LocationManager.
      */
     private fun hookFusedLocationProvider(lpparam: XC_LoadPackage.LoadPackageParam) {
-        try {
-            val locationResultClass = XposedHelpers.findClass(
-                "com.google.android.gms.location.LocationResult",
-                lpparam.classLoader
-            )
+        // Immediate attempt with hook classloader
+        if (tryInstallFusedHooks(lpparam.classLoader)) return
 
-            // Hook getLocations() to return a short, chronologically-ordered
-            // batch of our recent fixes (oldest → newest), as a real fused
-            // result would when a couple of updates are coalesced.
+        // Defer: retry after Application.onCreate when GMS classes may be loaded
+        runCatching {
             XposedHelpers.findAndHookMethod(
-                locationResultClass,
-                "getLocations",
+                "android.app.Application", lpparam.classLoader, "onCreate",
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
-                        getCurrentSpoofedLocation("fused")  // advance + cache one fresh fix
+                        if (fusedHooksInstalled) return
+                        val ctx = param.thisObject as android.content.Context
+                        var cl: ClassLoader? = ctx.classLoader
+                        while (cl != null && !fusedHooksInstalled) {
+                            tryInstallFusedHooks(cl)
+                            cl = cl.parent
+                        }
+                    }
+                }
+            )
+        }.onFailure { XposedBridge.log("[$TAG] Deferred fused hook setup failed: ${it.message}") }
+    }
+
+    private fun tryInstallFusedHooks(classLoader: ClassLoader): Boolean {
+        if (fusedHooksInstalled) return true
+        try {
+            val locationResultClass = XposedHelpers.findClass(
+                "com.google.android.gms.location.LocationResult", classLoader
+            )
+
+            XposedHelpers.findAndHookMethod(
+                locationResultClass, "getLocations",
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        getCurrentSpoofedLocation("fused")
                         val batch = recentLocations.takeLast(minOf(2, recentLocations.size))
                         param.result = ArrayList(batch)
                     }
                 }
             )
 
-            // Hook getLastLocation() to return the most recent cached fix without
-            // advancing the trajectory, so it stays equal to getLocations().last().
             XposedHelpers.findAndHookMethod(
-                locationResultClass,
-                "getLastLocation",
+                locationResultClass, "getLastLocation",
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         param.result = lastSpoofedLocation ?: getCurrentSpoofedLocation("fused")
@@ -517,9 +555,12 @@ class MelosHookEntry : IXposedHookLoadPackage {
                 }
             )
 
-            XposedBridge.log("[$TAG] FusedLocationProvider hooks installed")
+            fusedHooksInstalled = true
+            XposedBridge.log("[$TAG] FusedLocationProvider hooks installed (classLoader=${classLoader.javaClass.simpleName})")
+            return true
         } catch (e: Throwable) {
             XposedBridge.log("[$TAG] FusedLocationProvider not available: ${e.message}")
+            return false
         }
     }
 
@@ -533,45 +574,69 @@ class MelosHookEntry : IXposedHookLoadPackage {
         listener: android.location.LocationListener,
         intervalMs: Long,
     ) {
-        val effectiveInterval = if (intervalMs <= 0) 1000L else intervalMs
-        val thread = Thread({
-            try {
-                while (true) {
-                    Thread.sleep(effectiveInterval)
-                    val spoofed = getCurrentSpoofedLocation("gps")
-                    val lat = spoofed.latitude
-                    val lng = spoofed.longitude
-
-                    // Post to main thread for the listener callback
-                    android.os.Handler(android.os.Looper.getMainLooper()).post {
-                        try {
-                            listener.onLocationChanged(spoofed)
-                        } catch (e: Throwable) {
-                            XposedBridge.log("[$TAG] Listener error: ${e.message}")
-                        }
-                    }
-
-                    lastTrajectoryPoint?.let { point ->
-                        sensorHookManager?.startSensorInjection()
-                        sensorHookManager?.updateBearing(
-                            point.bearingDeg,
-                            lastBearingChangeRate
-                        )
-                    }
-
-                    XposedBridge.log("[$TAG] Loc update: ${String.format("%.6f,%.6f spd=%.1f", lat, lng, spoofed.speed)}")
-                }
-            } catch (e: InterruptedException) {
-                XposedBridge.log("[$TAG] Location thread interrupted")
-            } catch (e: Throwable) {
-                XposedBridge.log("[$TAG] Location thread error: ${e.message}")
-                e.printStackTrace()
+        synchronized(listenersLock) {
+            // Avoid duplicate registration (identity check)
+            if (registeredListeners.any { it === listener }) {
+                XposedBridge.log("[$TAG] Listener already registered, skipping")
+                return
             }
-        }, "Melos-LocThread")
-        thread.isDaemon = true
-        thread.start()
+            registeredListeners.add(listener)
 
-        XposedBridge.log("[$TAG] Location thread started (~${effectiveInterval}ms)")
+            // Start shared thread only if not already running
+            if (sharedLocationThread == null || !sharedLocationThread!!.isAlive) {
+                sharedLocationThread = Thread({
+                    try {
+                        while (true) {
+                            Thread.sleep(1000L)
+                            val spoofed = getCurrentSpoofedLocation("gps")
+
+                            // Snapshot listeners under lock
+                            val listeners: List<android.location.LocationListener>
+                            synchronized(listenersLock) {
+                                listeners = registeredListeners.toList()
+                            }
+
+                            for (l in listeners) {
+                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                    try {
+                                        l.onLocationChanged(spoofed)
+                                    } catch (e: Throwable) {
+                                        XposedBridge.log("[$TAG] Listener error: ${e.message}")
+                                    }
+                                }
+                            }
+
+                            lastTrajectoryPoint?.let { point ->
+                                sensorHookManager?.startSensorInjection()
+                                sensorHookManager?.updateBearing(
+                                    point.bearingDeg,
+                                    lastBearingChangeRate
+                                )
+                            }
+
+                            XposedBridge.log("[$TAG] Loc update: ${String.format("%.6f,%.6f spd=%.1f", spoofed.latitude, spoofed.longitude, spoofed.speed)}")
+                        }
+                    } catch (e: InterruptedException) {
+                        XposedBridge.log("[$TAG] Shared location thread stopped")
+                    } catch (e: Throwable) {
+                        XposedBridge.log("[$TAG] Location thread error: ${e.message}")
+                        e.printStackTrace()
+                    }
+                }, "Melos-LocThread").apply {
+                    isDaemon = true
+                    start()
+                }
+            }
+        }
+
+        XposedBridge.log("[$TAG] Listener registered, total=${registeredListeners.size}")
+    }
+
+    private fun removeLocationListener(listener: android.location.LocationListener) {
+        synchronized(listenersLock) {
+            registeredListeners.removeAll { it === listener }
+            XposedBridge.log("[$TAG] Listener removed, remaining=${registeredListeners.size}")
+        }
     }
 
     /**
