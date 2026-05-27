@@ -20,34 +20,51 @@
 | GPS 泄漏防护 | Location getter (6 个) | IdentityHashMap 缓存替换真实坐标 | ✅ |
 | 海拔高度 | GPS / 气压计 | 真实海拔 profile + 微波动 | ✅ |
 | 步频/步数 | 加速度计/步进检测器 | 速度-步频耦合 + hash 白噪声 | ✅ |
-| 磁力计/陀螺仪 | SensorManager | 方位角驱动 + 角速度同步 | ✅ |
+| 陀螺仪 | SensorManager | 航向变化率同步 + 步频摆动 | ✅ |
+| 磁力计 | SensorManager | 方位角驱动地磁场 + hash 噪声 | ✅ |
 | 融合定位 | GMS FusedLocationProvider | getLocations/getLastLocation spoof，缓存一致 | ✅ |
 | WiFi AP | WifiManager | KNN 空间查询真实指纹 + RSSI 噪声 | ✅ |
 | 基站信息 | TelephonyManager | Unsafe 构建 CellInfo + 真实指纹数据 | ✅ |
-| 环境检测 | 文件/包名/Build/反射 | Root/Xposed/SELinux 全维度隐藏 | ✅ |
+| 环境检测 | 文件/包名/Build/反射 | Root/Xposed/SELinux 全维度隐藏 (Layer 1+2+) | ✅ |
 | 传感器时间戳 | SensorEvent.timestamp | elapsedRealtimeNanos 单调时钟，GPS/传感器同步 | ✅ |
 | 多线程定位 | 多 listener 注册 | 去重 + 单共享 Melos-LocThread | ✅ |
+| Location 元数据 | hasBearing/hasSpeed | 确保 hasBearing/hasSpeed 返回 true | ✅ |
 
-## App 界面
+## 实测验证
 
-统一 3-tab 界面（底部导航）：
+2026-05-28 在 Pixel 4 XL 上通过微信小程序运动追踪实测，各维度 hook 状态：
+
+| 维度 | 拦截路径 | 实测结果 |
+|------|---------|---------|
+| GPS 位置 | LocationManager (7 种重载) | ✅ 坐标持续更新，速度 3.0-3.5 m/s |
+| WiFi | WifiManager.getScanResults | ✅ 返回 7-9 个伪造 AP |
+| 基站 | TelephonyManager.getAllCellInfo | ✅ 返回 2 个伪造基站 |
+| 加速度计 | SensorManager.registerListener (Handler 重载) | ✅ 步态波形正常注入 |
+| 陀螺仪 | SensorManager.registerListener (Handler 重载) | ✅ bearingRate 同步注入 |
+| 磁力计 | 微信 native 层直接读取 | ⚠️ Java hook 不可达，地图朝向锥不受控 |
+| 步数 | wx.getWeRunData (每日汇总) | ⚠️ 非实时，不影响运动追踪 |
+
+## App 界面 (Material Design 3)
+
+统一 3-tab 界面（底部导航 + MaterialToolbar 标题栏）：
 
 ### Tab 1 — 模拟控制
-- 场地选择（嘉定大操场 / 同济四平操场）
-- 配速滑块：1.0 ~ 5.5 m/s（走路 → 慢跑 → 快跑）
-- 圈数滑块：1 ~ 50 圈
+- 场地选择：嘉定大操场 / 同济四平操场（AutoCompleteTextView + ExposedDropdownMenu）
+- 配速滑块：3:00 ~ 9:00 min/km（Material Slider）
+- 圈数滑块：1 ~ 10 圈
+- 预览轨迹按钮（Leaflet 地图 + 高德瓦片）
 - 开始/停止按钮（确认对话框，写入配置文件，hook 实时读取）
 
 ### Tab 2 — 采集器
-- 实时显示 GPS 坐标/精度/WiFi AP 数/基站数
+- 实时显示 GPS 坐标/精度/WiFi AP 数/基站数（卡片布局）
 - 点采集 / 连续采集（前台服务，可熄屏后台）
-- WiFi + 基站数据自动刷新
+- WiFi + 基站数据异步刷新（Snackbar 提示）
 - 采集列表：查看地图 / 删除 / 导出 JSON
 
 ### Tab 3 — 日志
 - 异常日志（E/W 级别，默认展开）
 - 全部日志（默认折叠，可点击展开）
-- 日志来自 hook 进程和 app 本身写入的 `/data/local/tmp/melos.log`
+- 红色 FAB 清除日志
 
 ## 轨迹引擎
 
@@ -75,7 +92,25 @@
 - 气压计：海拔换算 + sin 低频漂移 + hash 噪声
 - 磁力计：方位角驱动 + per-axis hash 噪声
 - 陀螺仪：角速度同步 + 摆动频率
+- SensorEvent 通过 `Unsafe.allocateInstance` 创建，兼容所有 ROM 和进程
+- `registerListener` 全部 4 个重载已 hook（含 Handler 参数版本）
 - GPS 冷启动模拟：前 20s 精度渐降（5x → 1x）、卫星数从 3 渐增到 9+
+
+### 反检测体系
+
+| 层级 | 检测向量 | 对抗方式 |
+|------|---------|---------|
+| Layer 1 | 文件系统 su/magisk/busybox | File.exists() 返回 false |
+| Layer 1 | root 命令执行 | Runtime.exec / ProcessBuilder 拦截 |
+| Layer 1 | Magisk/Xposed 包名 | PackageManager 抛 NameNotFoundException |
+| Layer 1 | Build.TAGS test-keys | 替换为 release-keys |
+| Layer 1 | Class.forName 探测 Xposed 类 | 抛 ClassNotFoundException |
+| Layer 2 | 堆栈跟踪 Xposed 帧 | Throwable/Thread.getStackTrace 过滤 |
+| Layer 2 | 系统属性 (ro.debuggable 等) | SystemProperties.get 伪造 |
+| Layer 2 | ADB/开发者选项 | Settings.Secure/Global 归零 |
+| Layer 2 | ProcessBuilder 命令注入 | 与 Runtime.exec 同策略 |
+| Layer 2+ | SELinux/verified-boot 文件 | FileInputStream 拦截 + canRead 返回 false |
+| Layer 2+ | getenforce/sestatus 命令 | 命令级拦截 |
 
 ## 代码结构
 
@@ -85,7 +120,7 @@ app/src/main/kotlin/com/melos/
 ├── MelosConfig.kt                 # 跨进程配置（JSON 文件读写 + 日志）
 ├── TrajectoryMapActivity.kt       # 轨迹地图预览（Leaflet + 高德瓦片）
 ├── ui/
-│   ├── MainActivity.kt            # 3-tab 主界面
+│   ├── MainActivity.kt            # 3-tab 主界面 (MD3)
 │   ├── SimulateFragment.kt        # 模拟控制（场地/配速/圈数/启停）
 │   ├── CollectorFragment.kt       # GPS+WiFi+基站采集
 │   └── LogFragment.kt             # 异常日志 + 全部日志
@@ -101,7 +136,7 @@ app/src/main/kotlin/com/melos/
 │   └── RealTrackLoader.kt         # 真实轨迹加载与清洗
 ├── sensor/
 │   ├── SensorSimulator.kt         # 多传感器数据生成
-│   └── SensorHookManager.kt       # 50Hz 独立注入循环
+│   └── SensorHookManager.kt       # 50Hz 独立注入循环 (4 重载 hook)
 ├── fingerprint/
 │   ├── FingerprintDatabase.kt     # WiFi/基站指纹 KNN 查询
 │   ├── WifiCellHookManager.kt     # WifiManager/TelephonyManager Hook
@@ -112,7 +147,7 @@ app/src/main/kotlin/com/melos/
 
 ## 单元测试
 
-170 个测试全部通过：
+187 个测试全部通过：
 
 | 测试类 | 数量 | 覆盖范围 |
 |--------|------|----------|
@@ -144,6 +179,7 @@ adb logcat | grep Melos
 ## 已知残留风险
 
 - 🟡 **服务端轨迹统计分析**：轨迹来自同一场地采集数据，防守方收集足够样本后可能通过统计检验筛出异常
+- 🟡 **磁力计朝向**：微信地图通过 native 层读取磁力计，Java hook 不可达，地图方向锥不受控（不影响轨迹追踪功能）
 - 🟢 **服务端合理性校验**（运动时段、距离/时长比）——当前默认 9km/h 基本合理
 
 ## License
