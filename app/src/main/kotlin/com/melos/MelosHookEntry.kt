@@ -170,6 +170,7 @@ class MelosHookEntry : IXposedHookLoadPackage {
     // Monotonically increasing timestamp tracking
     private var lastLocationTimeMs = 0L
     private var locUpdateCount = 0
+    private var locGetterCount = 0L
 
     // Bearing change rate for gyroscope synchronization
     private var lastBearingChangeRate = 0f
@@ -247,6 +248,12 @@ class MelosHookEntry : IXposedHookLoadPackage {
                     "getBearing" -> param.result = cached.bearing
                     "getAccuracy" -> param.result = cached.accuracy
                 }
+
+                // Throttled diagnostic: log which getter was called
+                locGetterCount++
+                if (locGetterCount % 500 == 1L) {
+                    XposedBridge.log("[$TAG] DIAG Location.${param.method.name} called on real Location (anti-leak), returning bearing=${cached.bearing} speed=${cached.speed}")
+                }
             }
         }
         XposedHelpers.findAndHookMethod(Location::class.java, "getLatitude", replaceIfReal)
@@ -255,6 +262,24 @@ class MelosHookEntry : IXposedHookLoadPackage {
         XposedHelpers.findAndHookMethod(Location::class.java, "getSpeed", replaceIfReal)
         XposedHelpers.findAndHookMethod(Location::class.java, "getBearing", replaceIfReal)
         XposedHelpers.findAndHookMethod(Location::class.java, "getAccuracy", replaceIfReal)
+
+        // Ensure hasBearing/hasSpeed return true so the map uses our bearing data
+        XposedHelpers.findAndHookMethod(Location::class.java, "hasBearing",
+            object : XC_MethodHook() {
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    val loc = param.thisObject as? Location ?: return
+                    if (loc.extras?.getBoolean("melos_spoofed") == true) param.result = true
+                }
+            }
+        )
+        XposedHelpers.findAndHookMethod(Location::class.java, "hasSpeed",
+            object : XC_MethodHook() {
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    val loc = param.thisObject as? Location ?: return
+                    if (loc.extras?.getBoolean("melos_spoofed") == true) param.result = true
+                }
+            }
+        )
         XposedBridge.log("[$TAG] Location getter hooks installed (anti-leak)")
     }
 

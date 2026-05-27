@@ -53,7 +53,17 @@ object MelosConfig {
             put("speed_mps", config.speedMps)
             put("laps", config.laps)
         }
-        File(CONFIG_PATH).writeText(json.toString(2))
+        try {
+            File(CONFIG_PATH).writeText(json.toString(2))
+        } catch (e: Exception) {
+            // May fail with EACCES if selinux blocks app process;
+            // fall back to writing via shell (assumes rooted device).
+            try {
+                val proc = Runtime.getRuntime().exec(arrayOf("sh", "-c",
+                    "echo '${json.toString(2).replace("'", "'\\''")}' > $CONFIG_PATH"))
+                proc.waitFor()
+            } catch (_: Exception) {}
+        }
     }
 
     // ── Logging ──────────────────────────────────────────────────

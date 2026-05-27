@@ -44,7 +44,8 @@ class SensorSimulator(
     var clockBaseNs: Long = 0L
 
     // Speed tracking for cadence-speed coupling
-    private var currentSpeedMps = runningSpeedMps
+    var currentSpeedMps = runningSpeedMps
+        private set
     private var lastGpsTimeMs = 0L
 
     // Timing
@@ -75,6 +76,8 @@ class SensorSimulator(
 
     fun getStartTime(): Long = startTimeMs
 
+    private var gpsUpdateCount = 0
+
     /**
      * Update simulation state with new position data.
      * Tracks speed for cadence coupling and increments steps with
@@ -102,6 +105,12 @@ class SensorSimulator(
         val stride = (0.6f + currentSpeedMps * 0.15f).coerceIn(0.5f, 1.2f)
         if (stride > 0 && distanceDeltaMeters > 0) {
             totalSteps += (distanceDeltaMeters / stride).toInt()
+        }
+
+        gpsUpdateCount++
+        if (gpsUpdateCount % 10 == 1) {
+            XposedBridge.log("[$TAG] DIAG GPS→Sensor: alt=%.1fm speed=%.1fm/s steps=%d dist=%.1fm cadence=%.0fspm".format(
+                altitudeMeters, currentSpeedMps, totalSteps, elapsedDistanceMeters, currentCadence))
         }
     }
 
@@ -281,20 +290,14 @@ class SensorSimulator(
         timestampMs: Long,
         accuracy: Int,
     ): SensorEvent {
-        // SensorEvent has a package-private no-arg constructor in the SDK stub.
-        // On device, the runtime may have additional hidden constructors.
-        val event: SensorEvent = try {
-            val ctor = SensorEvent::class.java.getDeclaredConstructor()
-            ctor.isAccessible = true
-            ctor.newInstance()
-        } catch (_: Exception) {
-            val ctor = SensorEvent::class.java.getDeclaredConstructor(
-                Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType
-            )
-            ctor.isAccessible = true
-            ctor.newInstance(values.size, 0)
-        }
+        // Use Unsafe.allocateInstance to bypass constructor entirely —
+        // SensorEvent constructors vary across ROMs and may not be accessible.
+        val unsafeClass = Class.forName("sun.misc.Unsafe")
+        val unsafeField = unsafeClass.getDeclaredField("theUnsafe")
+        unsafeField.isAccessible = true
+        val unsafe = unsafeField.get(null)!!
+        val allocateMethod = unsafeClass.getMethod("allocateInstance", Class::class.java)
+        val event = allocateMethod.invoke(unsafe, SensorEvent::class.java) as SensorEvent
 
         val sensorField = SensorEvent::class.java.getDeclaredField("sensor")
         sensorField.isAccessible = true

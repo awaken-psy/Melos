@@ -41,6 +41,8 @@ class SensorHookManager(
     var currentBearingDeg = 0f
     var currentBearingChangeRate = 0f
 
+    private var injectCount = 0
+
     fun installHooks() {
         hookRegisterListener()
         hookUnregisterListener()
@@ -103,6 +105,40 @@ class SensorHookManager(
                 }
             }
         )
+
+        // Handler-based overloads — used by WeChat map component for compass
+        val handlerClass = android.os.Handler::class.java
+        for (overload in listOf(
+            arrayOf(SensorEventListener::class.java, Sensor::class.java, Int::class.javaPrimitiveType, handlerClass),
+            arrayOf(SensorEventListener::class.java, Sensor::class.java, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, handlerClass),
+        )) {
+            runCatching {
+                XposedHelpers.findAndHookMethod(
+                    sensorManagerClass,
+                    "registerListener",
+                    *overload,
+                    object : XC_MethodHook() {
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            val listener = param.args[0] as? SensorEventListener ?: return
+                            val sensor = param.args[1] as? Sensor ?: return
+                            val samplingPeriodUs = param.args[2] as? Int ?: return
+
+                            if (!isSpoofedSensor(sensor.type)) return
+
+                            param.result = true
+                            activeListeners[listener] = SensorInfo(
+                                sensor = sensor,
+                                samplingPeriodUs = samplingPeriodUs,
+                                registrationTime = System.currentTimeMillis()
+                            )
+                            XposedBridge.log("[$TAG] Spoofed sensor (Handler overload, real blocked): ${getSensorName(sensor.type)}")
+                        }
+                    }
+                )
+            }.onFailure {
+                XposedBridge.log("[$TAG] Handler-based registerListener overload not found: ${it.message}")
+            }
+        }
     }
 
     private fun hookUnregisterListener() {
@@ -188,8 +224,16 @@ class SensorHookManager(
         val now = System.currentTimeMillis()
         sensorSimulator.clockBaseMs = now
         sensorSimulator.clockBaseNs = android.os.SystemClock.elapsedRealtimeNanos()
+        injectCount++
 
         injectStepDetectorEvents(now)
+
+        // Diagnostic snapshot: log all active listeners every 50 injection cycles (~1s)
+        val doDiag = injectCount % 50 == 1
+        if (doDiag) {
+            val types = activeListeners.values.map { getSensorName(it.sensor.type) }.distinct().sorted()
+            XposedBridge.log("[$TAG] DIAG listeners=${activeListeners.size} types=$types bearing=%.1f° bearingRate=%.2f°/s steps=${sensorSimulator.getStepCount()} cadence=%.0fspm speed=%.1fm/s".format(currentBearingDeg, currentBearingChangeRate, sensorSimulator.getStepsPerMinute(), sensorSimulator.currentSpeedMps))
+        }
 
         activeListeners.forEach { (listener, info) ->
             val intervalMs = getSensorIntervalMs(info.sensor.type, info.samplingPeriodUs)
@@ -213,6 +257,14 @@ class SensorHookManager(
                     listener.onSensorChanged(it)
                     if (now % 5000 < intervalMs) {
                         listener.onAccuracyChanged(info.sensor, it.accuracy)
+                    }
+                    // Log actual values every diagnostic cycle
+                    if (doDiag) {
+                        val name = getSensorName(info.sensor.type)
+                        val v = it.values
+                        val vStr = if (v.size <= 1) String.format("%.2f", v.firstOrNull() ?: 0f)
+                                   else v.map { v2 -> String.format("%.2f", v2) }.joinToString(",")
+                        XposedBridge.log("[$TAG] DIAG $name → [$vStr] acc=${it.accuracy}")
                     }
                 } catch (e: Throwable) {
                     XposedBridge.log("[$TAG] Error injecting sensor event: ${e.message}")
