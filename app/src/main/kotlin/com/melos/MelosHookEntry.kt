@@ -5,6 +5,8 @@ import android.hardware.SensorManager
 import android.location.Location
 import android.os.Bundle
 import android.app.PendingIntent
+import com.melos.fingerprint.FingerprintDatabase
+import com.melos.fingerprint.WifiCellHookManager
 import com.melos.hide.AntiDetection
 import com.melos.sensor.SensorHookManager
 import com.melos.sensor.SensorSimulator
@@ -42,45 +44,37 @@ class MelosHookEntry : IXposedHookLoadPackage {
         private const val RUNNING_SPEED_MPS = 2.5f  // ~9 km/h
         private const val STEPS_PER_MINUTE = 160f
 
-        // Standard 400m running track at Tongji Siping Campus.
-        // Long axis oriented roughly North–South to match the real field.
-        private val TONGJI_TRACK = buildTongjiTrack()
-
-        /**
-         * Build an IAAF-style 400m track (lane 1): two 84.39 m straights joined
-         * by two 36.5 m-radius semicircular bends (~398 m perimeter). The bends
-         * are densely sampled so the polyline interpolation traces a smooth curve
-         * instead of the geometric diamond a hand-picked 4-point loop produces.
-         */
-        private fun buildTongjiTrack(): TrackProfile {
-            val center = LatLng(31.2506, 121.5045)
-            val halfStraight = 84.39 / 2.0   // metres, half of one straight
-            val radius = 36.5                // metres, bend radius
-            val arcSteps = 8                 // segments per semicircular bend
+        // IAAF-style 400m track builder. Same geometry reused for all campuses.
+        private fun build400mTrack(center: LatLng, name: String): TrackProfile {
+            val halfStraight = 84.39 / 2.0
+            val radius = 36.5
+            val arcSteps = 8
 
             fun local(eastM: Double, northM: Double): LatLng =
                 GeoUtils.offsetMeters(center, eastM, northM)
 
             val pts = ArrayList<LatLng>()
-            // West straight, south → north (east = -radius)
             pts.add(local(-radius, -halfStraight))
             pts.add(local(-radius, +halfStraight))
-            // North bend, west → east (φ: 180° → 0°), interior points only
             for (i in 1 until arcSteps) {
                 val phi = Math.toRadians(180.0 - 180.0 * i / arcSteps)
                 pts.add(local(radius * Math.cos(phi), halfStraight + radius * Math.sin(phi)))
             }
-            // East straight, north → south (east = +radius)
             pts.add(local(+radius, +halfStraight))
             pts.add(local(+radius, -halfStraight))
-            // South bend, east → west (φ: 0° → -180°), interior points only
             for (i in 1 until arcSteps) {
                 val phi = Math.toRadians(-180.0 * i / arcSteps)
                 pts.add(local(radius * Math.cos(phi), -halfStraight + radius * Math.sin(phi)))
             }
-            // TrackProfile closes the loop back to the first point automatically.
-            return TrackProfile(name = "Tongji 400m Track", waypoints = pts)
+            return TrackProfile(name = name, waypoints = pts)
         }
+
+        private val JIADING_TRACK = build400mTrack(
+            LatLng(31.29209, 121.21272), "Jiading 400m Track"
+        )
+        private val TONGJI_TRACK = build400mTrack(
+            LatLng(31.2506, 121.5045), "Tongji 400m Track"
+        )
     }
 
     // Per-process simulation state (each app process gets its own instance)
@@ -90,7 +84,7 @@ class MelosHookEntry : IXposedHookLoadPackage {
     )
 
     private val trajectoryGenerator = TrajectoryGenerator(
-        trackProfile = TONGJI_TRACK,
+        trackProfile = JIADING_TRACK,
         meanSpeedMps = RUNNING_SPEED_MPS.toDouble(),
         speedVariation = 0.15,
         wanderMeters = 2.0
@@ -98,6 +92,8 @@ class MelosHookEntry : IXposedHookLoadPackage {
 
     private var lastTrajectoryPoint: TrajectoryPoint? = null
     private var sensorHookManager: SensorHookManager? = null
+    private val fingerprintDatabase = FingerprintDatabase()
+    private var wifiCellHookManager: WifiCellHookManager? = null
 
     // Recently emitted fixes, kept so fused getLocations()/getLastLocation()
     // stay mutually consistent and can return a plausible short batch.
@@ -125,6 +121,10 @@ class MelosHookEntry : IXposedHookLoadPackage {
 
             // Initialize sensor hook manager
             sensorHookManager = SensorHookManager(lpparam, simulator)
+
+            // Initialize WiFi/Cell hook manager
+            wifiCellHookManager = WifiCellHookManager(lpparam, fingerprintDatabase)
+            wifiCellHookManager?.installHooks()
 
             // Install all hooks
             hookLocationManager(lpparam)
@@ -567,6 +567,9 @@ class MelosHookEntry : IXposedHookLoadPackage {
         }
 
         lastTrajectoryPoint = point
+
+        // Sync position to WiFi/Cell fingerprint hook
+        wifiCellHookManager?.updatePosition(point.position.lat, point.position.lng)
 
         // Update sensor simulator state
         val distDelta = point.elapsedDistanceMeters - prevDist

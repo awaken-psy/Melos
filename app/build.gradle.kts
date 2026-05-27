@@ -52,4 +52,5 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(files("libs/xposed-api-82.jar"))
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
+    testImplementation("org.json:json:20231013")
 }
