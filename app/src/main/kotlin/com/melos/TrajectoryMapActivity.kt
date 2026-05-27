@@ -8,6 +8,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.melos.trajectory.GeoUtils
 import com.melos.trajectory.RealTrackLoader
 import com.melos.trajectory.TrackProfile
 import com.melos.trajectory.TrajectoryGenerator
@@ -63,7 +64,7 @@ class TrajectoryMapActivity : AppCompatActivity() {
         // Build JSON for the map (convert WGS-84 → GCJ-02 for Gaode tiles)
         val ptsJson = JSONArray().apply {
             for (p in points) {
-                val (gcjLat, gcjLng) = wgs84ToGcj02(p.position.lat, p.position.lng)
+                val (gcjLat, gcjLng) = GeoUtils.wgs84ToGcj02(p.position.lat, p.position.lng)
                 put(JSONArray().apply {
                     put(gcjLat)
                     put(gcjLng)
@@ -170,40 +171,5 @@ else {
         val webView = findViewById<WebView>(R.id.webView)
         if (webView.canGoBack()) webView.goBack()
         else super.onBackPressed()
-    }
-
-    // ── WGS-84 → GCJ-02 coordinate conversion ──
-
-    companion object {
-        private const val GCJ_A = 6378245.0
-        private const val GCJ_EE = 0.00669342162296594323
-
-        fun wgs84ToGcj02(lat: Double, lng: Double): Pair<Double, Double> {
-            if (lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271) return Pair(lat, lng)
-            var dLat = gcjTransformLat(lng - 105.0, lat - 35.0)
-            var dLng = gcjTransformLng(lng - 105.0, lat - 35.0)
-            val radLat = lat / 180.0 * Math.PI
-            val magic = 1 - GCJ_EE * Math.sin(radLat).let { it * it }
-            val sqrtMagic = Math.sqrt(magic)
-            dLat = (dLat * 180.0) / ((GCJ_A * (1 - GCJ_EE)) / (magic * sqrtMagic) * Math.PI)
-            dLng = (dLng * 180.0) / (GCJ_A / sqrtMagic * Math.cos(radLat) * Math.PI)
-            return Pair(lat + dLat, lng + dLng)
-        }
-
-        private fun gcjTransformLat(x: Double, y: Double): Double {
-            var r = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x))
-            r += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0
-            r += (20.0 * Math.sin(y * Math.PI) + 40.0 * Math.sin(y / 3.0 * Math.PI)) * 2.0 / 3.0
-            r += (160.0 * Math.sin(y / 12.0 * Math.PI) + 320.0 * Math.sin(y * Math.PI / 30.0)) * 2.0 / 3.0
-            return r
-        }
-
-        private fun gcjTransformLng(x: Double, y: Double): Double {
-            var r = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x))
-            r += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0
-            r += (20.0 * Math.sin(x * Math.PI) + 40.0 * Math.sin(x / 3.0 * Math.PI)) * 2.0 / 3.0
-            r += (150.0 * Math.sin(x / 12.0 * Math.PI) + 300.0 * Math.sin(x / 30.0 * Math.PI)) * 2.0 / 3.0
-            return r
-        }
     }
 }

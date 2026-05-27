@@ -128,6 +128,7 @@ class MelosHookEntry : IXposedHookLoadPackage {
 
     // Monotonically increasing timestamp tracking
     private var lastLocationTimeMs = 0L
+    private var locUpdateCount = 0
 
     // Bearing change rate for gyroscope synchronization
     private var lastBearingChangeRate = 0f
@@ -636,7 +637,10 @@ class MelosHookEntry : IXposedHookLoadPackage {
                                 )
                             }
 
-                            XposedBridge.log("[$TAG] Loc update: ${String.format("%.6f,%.6f spd=%.1f", spoofed.latitude, spoofed.longitude, spoofed.speed)}")
+                            locUpdateCount++
+                            if (locUpdateCount % 10 == 1) {
+                                XposedBridge.log("[$TAG] Loc update #$locUpdateCount: ${String.format("%.6f,%.6f spd=%.1f", spoofed.latitude, spoofed.longitude, spoofed.speed)}")
+                            }
                         }
                     } catch (e: InterruptedException) {
                         XposedBridge.log("[$TAG] Shared location thread stopped")

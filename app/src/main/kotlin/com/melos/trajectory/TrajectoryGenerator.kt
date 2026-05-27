@@ -55,28 +55,8 @@ class TrajectoryGenerator(
         val corners = mutableListOf<Pair<Double, Double>>()
         val perimeter = trackProfile.perimeterMeters
 
-        // Look for sharp direction changes (corners)
-        // TODO: implement proper corner detection from bearing changes
-        @Suppress("UNUSED_VARIABLE")
-        var accumulatedDist = 0.0
-        for (i in trackProfile.loop.indices) {
-            if (i == 0) continue
-
-            val prevIdx = (i - 1 + trackProfile.loop.size) % trackProfile.loop.size
-            val nextIdx = i
-
-            @Suppress("UNUSED_VARIABLE")
-            val bearing = GeoUtils.bearingDeg(
-                trackProfile.loop[prevIdx],
-                trackProfile.loop[nextIdx]
-            )
-        }
-
-        // For oval tracks, assume corners are at specific positions
-        // This is a simplified approach; real implementation would analyze geometry
         if (perimeter > 300 && perimeter < 500) {
-            // Standard 400m track: corners are roughly at the bends
-            val cornerLength = perimeter * 0.15  // Each corner is ~15% of track
+            val cornerLength = perimeter * 0.15
             corners.add(Pair(perimeter * 0.25 - cornerLength/2, perimeter * 0.25 + cornerLength/2))
             corners.add(Pair(perimeter * 0.75 - cornerLength/2, perimeter * 0.75 + cornerLength/2))
         }

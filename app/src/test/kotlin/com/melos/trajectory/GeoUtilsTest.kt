@@ -227,4 +227,68 @@ class GeoUtilsTest {
         assertEquals(3.0, r1.lat, 0.0001)
         assertEquals(7.0, r2.lat, 0.0001)
     }
+
+    // ── wgs84ToGcj02 ─────────────────────────────────────────────
+
+    @Test
+    fun `gcj02 shift is small for Shanghai`() {
+        val (lat, lng) = GeoUtils.wgs84ToGcj02(31.2304, 121.4737)
+        val dLat = abs(lat - 31.2304)
+        val dLng = abs(lng - 121.4737)
+        // Shift is typically a few hundred meters → ~0.003°
+        assertTrue("Lat shift too large: $dLat", dLat < 0.01)
+        assertTrue("Lng shift too large: $dLng", dLng < 0.01)
+    }
+
+    @Test
+    fun `gcj02 both coordinates change for China`() {
+        val (lat, lng) = GeoUtils.wgs84ToGcj02(31.2304, 121.4737)
+        assertTrue("Lat should shift", lat != 31.2304)
+        assertTrue("Lng should shift", lng != 121.4737)
+    }
+
+    @Test
+    fun `gcj02 returns identity outside China`() {
+        val (lat, lng) = GeoUtils.wgs84ToGcj02(40.7128, -74.0060) // New York
+        assertEquals(40.7128, lat, 0.0000001)
+        assertEquals(-74.0060, lng, 0.0000001)
+    }
+
+    @Test
+    fun `gcj02 returns identity near boundary west`() {
+        val (lat, lng) = GeoUtils.wgs84ToGcj02(35.0, 70.0) // west of China
+        assertEquals(35.0, lat, 0.0000001)
+        assertEquals(70.0, lng, 0.0000001)
+    }
+
+    @Test
+    fun `gcj02 returns identity near boundary north`() {
+        val (lat, lng) = GeoUtils.wgs84ToGcj02(56.0, 120.0) // north of China
+        assertEquals(56.0, lat, 0.0000001)
+        assertEquals(120.0, lng, 0.0000001)
+    }
+
+    @Test
+    fun `gcj02 is deterministic`() {
+        val r1 = GeoUtils.wgs84ToGcj02(31.29217, 121.21242)
+        val r2 = GeoUtils.wgs84ToGcj02(31.29217, 121.21242)
+        assertEquals(r1.first, r2.first, 0.0)
+        assertEquals(r1.second, r2.second, 0.0)
+    }
+
+    @Test
+    fun `gcj02 output is close to input`() {
+        val (lat, lng) = GeoUtils.wgs84ToGcj02(31.29217, 121.21242)
+        val dist = GeoUtils.haversineMeters(LatLng(31.29217, 121.21242), LatLng(lat, lng))
+        // GCJ-02 offset is typically 200-700m in China
+        assertTrue("Shift should be < 1000m, got ${dist}m", dist < 1000.0)
+        assertTrue("Shift should be > 100m, got ${dist}m", dist > 50.0)
+    }
+
+    @Test
+    fun `gcj02 shift for Beijing`() {
+        val (lat, lng) = GeoUtils.wgs84ToGcj02(39.9042, 116.4074)
+        assertTrue("Beijing should be in China range", lat != 39.9042)
+        assertTrue("Lng should shift", lng != 116.4074)
+    }
 }

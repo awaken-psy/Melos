@@ -262,4 +262,63 @@ class TrajectoryGeneratorTest {
         val d2 = generator.getCurrentDistance()
         assertTrue(d2 >= d1)
     }
+
+    // ── Real speed/altitude profile interpolation ────────────────
+
+    @Test
+    fun `real profile produces valid speeds`() {
+        val gen = TrajectoryGenerator(
+            trackProfile = track,
+            meanSpeedMps = 2.5,
+            realSpeedAltitudeProfile = simpleProfile(),
+        )
+        val points = (31..60).map { gen.nextPoint(it.toDouble()) }
+        for (p in points) {
+            assertTrue("Speed ${p.speedMps} out of range", p.speedMps in 0.5f..6.0f)
+        }
+    }
+
+    @Test
+    fun `real profile produces valid altitudes`() {
+        val gen = TrajectoryGenerator(
+            trackProfile = track,
+            meanSpeedMps = 2.5,
+            realSpeedAltitudeProfile = simpleProfile(),
+        )
+        val points = (31..60).map { gen.nextPoint(it.toDouble()) }
+        for (p in points) {
+            // Altitude from profile is 10-20m, plus micro variation ±0.1m
+            assertTrue("Altitude ${p.altitudeMeters} out of range", p.altitudeMeters in 5.0..25.0)
+        }
+    }
+
+    @Test
+    fun `real profile speed differs from no-profile`() {
+        val genNoProfile = TrajectoryGenerator(
+            trackProfile = track,
+            meanSpeedMps = 2.5,
+            speedVariation = 0.0,
+            wanderMeters = 0.0,
+        )
+        val genWithProfile = TrajectoryGenerator(
+            trackProfile = track,
+            meanSpeedMps = 2.5,
+            speedVariation = 0.0,
+            wanderMeters = 0.0,
+            realSpeedAltitudeProfile = simpleProfile(),
+        )
+        val p1 = genNoProfile.nextPoint(60.0)
+        val p2 = genWithProfile.nextPoint(60.0)
+        // With a real profile, speeds should differ from mathematical model
+        assertTrue("Speeds should differ: ${p1.speedMps} vs ${p2.speedMps}",
+            kotlin.math.abs(p1.speedMps - p2.speedMps) > 0.01f)
+    }
+
+    private fun simpleProfile(): List<ProfilePoint> = listOf(
+        ProfilePoint(0.0, 2.0, 12.0),
+        ProfilePoint(0.25, 2.8, 13.0),
+        ProfilePoint(0.5, 2.5, 11.0),
+        ProfilePoint(0.75, 2.3, 12.5),
+        ProfilePoint(1.0, 2.0, 12.0),
+    )
 }

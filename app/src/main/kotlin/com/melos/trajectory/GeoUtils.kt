@@ -65,4 +65,41 @@ object GeoUtils {
     /** Linear interpolation between two nearby coordinates (good enough at metre scale). */
     fun lerp(a: LatLng, b: LatLng, t: Double): LatLng =
         LatLng(a.lat + (b.lat - a.lat) * t, a.lng + (b.lng - a.lng) * t)
+
+    // ── WGS-84 → GCJ-02 coordinate conversion ────────────────────────
+
+    private const val GCJ_A = 6378245.0
+    private const val GCJ_EE = 0.00669342162296594323
+
+    /**
+     * Convert WGS-84 coordinates to GCJ-02 (China coordinate system).
+     * Returns input unchanged for coordinates outside China.
+     */
+    fun wgs84ToGcj02(lat: Double, lng: Double): Pair<Double, Double> {
+        if (lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271) return Pair(lat, lng)
+        var dLat = gcjTransformLat(lng - 105.0, lat - 35.0)
+        var dLng = gcjTransformLng(lng - 105.0, lat - 35.0)
+        val radLat = lat / 180.0 * Math.PI
+        val magic = 1 - GCJ_EE * sin(radLat).let { it * it }
+        val sqrtMagic = kotlin.math.sqrt(magic)
+        dLat = (dLat * 180.0) / ((GCJ_A * (1 - GCJ_EE)) / (magic * sqrtMagic) * Math.PI)
+        dLng = (dLng * 180.0) / (GCJ_A / sqrtMagic * cos(radLat) * Math.PI)
+        return Pair(lat + dLat, lng + dLng)
+    }
+
+    private fun gcjTransformLat(x: Double, y: Double): Double {
+        var r = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * kotlin.math.sqrt(kotlin.math.abs(x))
+        r += (20.0 * sin(6.0 * x * Math.PI) + 20.0 * sin(2.0 * x * Math.PI)) * 2.0 / 3.0
+        r += (20.0 * sin(y * Math.PI) + 40.0 * sin(y / 3.0 * Math.PI)) * 2.0 / 3.0
+        r += (160.0 * sin(y / 12.0 * Math.PI) + 320.0 * sin(y * Math.PI / 30.0)) * 2.0 / 3.0
+        return r
+    }
+
+    private fun gcjTransformLng(x: Double, y: Double): Double {
+        var r = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * kotlin.math.sqrt(kotlin.math.abs(x))
+        r += (20.0 * sin(6.0 * x * Math.PI) + 20.0 * sin(2.0 * x * Math.PI)) * 2.0 / 3.0
+        r += (20.0 * sin(x * Math.PI) + 40.0 * sin(x / 3.0 * Math.PI)) * 2.0 / 3.0
+        r += (150.0 * sin(x / 12.0 * Math.PI) + 300.0 * sin(x / 30.0 * Math.PI)) * 2.0 / 3.0
+        return r
+    }
 }
