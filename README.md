@@ -25,15 +25,22 @@ Melos 是一个 LSPosed (Xposed) 模块，运行在已 root 的 Android 设备�
 
 ### 整体架构
 
-```
-┌─────────────┐     配置文件      ┌──────────────────────┐
-│  Melos App  │ ──── JSON ────→  │  Hook（微信进程内）    │
-│  (UI 进程)   │                  │  LocationManager      │
-│             │                  │  SensorManager        │
-│  采集器      │                  │  WifiManager          │
-│  轨迹引擎    │                  │  TelephonyManager     │
-│  指纹数据库  │                  │  AntiDetection        │
-└─────────────┘                  └──────────────────────┘
+```mermaid
+graph LR
+    subgraph UI["Melos App（UI 进程）"]
+        A[模拟控制] --> C[轨迹引擎]
+        B[采集器] --> D[指纹数据库]
+    end
+
+    subgraph Hook["Hook（微信进程内）"]
+        E[LocationManager]
+        F[SensorManager]
+        G[WifiManager]
+        H[TelephonyManager]
+        I[AntiDetection]
+    end
+
+    UI -- "melos_config.json" --> Hook
 ```
 
 - **Melos App（UI 进程）**：Material Design 3 界面，负责场地选择、参数配置、轨迹预览、实地数据采集。配置通过共享 JSON 文件传递给 hook 进程。

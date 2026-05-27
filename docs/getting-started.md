@@ -99,7 +99,7 @@ Shamiko 用于对目标应用隐藏 root 和 Xposed 注入痕迹，防止被检�
 adb shell su -c "touch /data/adb/shamiko/whitelist"
 ```
 
-> 白名单模式下，只有加入白名单的应用才能看到 root 畕迹（比如 Magisk 自身需要看到）。Melos 需要访问 root 写入配置文件，但不建议把微信加入白名单。
+> 白名单模式下，只有加入白名单的应用才能看到 root 痕迹（比如 Magisk 自身需要看到）。Melos 需要访问 root 写入配置文件，但不建议把微信加入白名单。
 
 ## 6. 安装 Melos
 
