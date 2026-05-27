@@ -70,7 +70,7 @@ class MelosHookEntry : IXposedHookLoadPackage {
         }
 
         private val JIADING_TRACK = build400mTrack(
-            LatLng(31.29209, 121.21272), "Jiading 400m Track"
+            LatLng(31.29217, 121.21242), "Jiading 400m Track"
         )
         private val TONGJI_TRACK = build400mTrack(
             LatLng(31.2506, 121.5045), "Tongji 400m Track"
@@ -127,6 +127,7 @@ class MelosHookEntry : IXposedHookLoadPackage {
             wifiCellHookManager?.installHooks()
 
             // Install all hooks
+            hookLocationGetters()
             hookLocationManager(lpparam)
             hookLocationListeners(lpparam)
             hookNewLocationAPIs(lpparam)
@@ -138,6 +139,36 @@ class MelosHookEntry : IXposedHookLoadPackage {
             XposedBridge.log("[$TAG] Hook installation failed: ${e.message}")
             e.printStackTrace()
         }
+    }
+
+    /**
+     * Hook Location.getLatitude() / getLongitude() to replace any real GPS
+     * that leaks through unhooked APIs (e.g. GMS FusedLocationProvider).
+     * Our own spoofed Locations are marked and left untouched.
+     */
+    private fun hookLocationGetters() {
+        val replaceIfReal = object : XC_MethodHook() {
+            override fun afterHookedMethod(param: MethodHookParam) {
+                val loc = param.thisObject as? Location ?: return
+                if (loc.extras?.getBoolean("melos_spoofed") == true) return
+                val spoofed = lastSpoofedLocation ?: getCurrentSpoofedLocation("anti-leak")
+                when (param.method.name) {
+                    "getLatitude" -> param.result = spoofed.latitude
+                    "getLongitude" -> param.result = spoofed.longitude
+                    "getAltitude" -> param.result = spoofed.altitude
+                    "getSpeed" -> param.result = spoofed.speed
+                    "getBearing" -> param.result = spoofed.bearing
+                    "getAccuracy" -> param.result = spoofed.accuracy
+                }
+            }
+        }
+        XposedHelpers.findAndHookMethod(Location::class.java, "getLatitude", replaceIfReal)
+        XposedHelpers.findAndHookMethod(Location::class.java, "getLongitude", replaceIfReal)
+        XposedHelpers.findAndHookMethod(Location::class.java, "getAltitude", replaceIfReal)
+        XposedHelpers.findAndHookMethod(Location::class.java, "getSpeed", replaceIfReal)
+        XposedHelpers.findAndHookMethod(Location::class.java, "getBearing", replaceIfReal)
+        XposedHelpers.findAndHookMethod(Location::class.java, "getAccuracy", replaceIfReal)
+        XposedBridge.log("[$TAG] Location getter hooks installed (anti-leak)")
     }
 
     /**
@@ -485,55 +516,45 @@ class MelosHookEntry : IXposedHookLoadPackage {
         listener: android.location.LocationListener,
         intervalMs: Long,
     ) {
-        try {
-            val looperClass = XposedHelpers.findClass("android.os.Looper", lpparam.classLoader)
-            val handlerClass = XposedHelpers.findClass("android.os.Handler", lpparam.classLoader)
+        val effectiveInterval = if (intervalMs <= 0) 1000L else intervalMs
+        val thread = Thread({
+            try {
+                while (true) {
+                    Thread.sleep(effectiveInterval)
+                    val spoofed = getCurrentSpoofedLocation("gps")
+                    val lat = spoofed.latitude
+                    val lng = spoofed.longitude
 
-            val mainLooper = XposedHelpers.callStaticMethod(looperClass, "getMainLooper")
-            val handler = handlerClass.getConstructor(looperClass).newInstance(mainLooper)
-
-            val locationRunnable = object : Runnable {
-                override fun run() {
-                    try {
-                        val spoofed = getCurrentSpoofedLocation("gps")
-                        listener.onLocationChanged(spoofed)
-
-                        // Update bearing for independent sensor injection loop
-                        lastTrajectoryPoint?.let { point ->
-                            sensorHookManager?.startSensorInjection()
-                            sensorHookManager?.updateBearing(
-                                point.bearingDeg,
-                                lastBearingChangeRate
-                            )
+                    // Post to main thread for the listener callback
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        try {
+                            listener.onLocationChanged(spoofed)
+                        } catch (e: Throwable) {
+                            XposedBridge.log("[$TAG] Listener error: ${e.message}")
                         }
-
-                        // Jitter: ±15% variation on each interval
-                        val jitter = (Math.random() * 0.3 - 0.15).toFloat()
-                        val nextInterval = (intervalMs * (1.0 + jitter)).toLong()
-
-                        XposedHelpers.callMethod(
-                            handler,
-                            "postDelayed",
-                            this,
-                            nextInterval
-                        )
-                    } catch (e: Throwable) {
-                        XposedBridge.log("[$TAG] Error in location update: ${e.message}")
                     }
+
+                    lastTrajectoryPoint?.let { point ->
+                        sensorHookManager?.startSensorInjection()
+                        sensorHookManager?.updateBearing(
+                            point.bearingDeg,
+                            lastBearingChangeRate
+                        )
+                    }
+
+                    XposedBridge.log("[$TAG] Loc update: ${String.format("%.6f,%.6f spd=%.1f", lat, lng, spoofed.speed)}")
                 }
+            } catch (e: InterruptedException) {
+                XposedBridge.log("[$TAG] Location thread interrupted")
+            } catch (e: Throwable) {
+                XposedBridge.log("[$TAG] Location thread error: ${e.message}")
+                e.printStackTrace()
             }
+        }, "Melos-LocThread")
+        thread.isDaemon = true
+        thread.start()
 
-            XposedHelpers.callMethod(
-                handler,
-                "postDelayed",
-                locationRunnable,
-                intervalMs
-            )
-
-            XposedBridge.log("[$TAG] Scheduled location updates ~${intervalMs}ms (with jitter)")
-        } catch (e: Throwable) {
-            XposedBridge.log("[$TAG] Failed to schedule updates: ${e.message}")
-        }
+        XposedBridge.log("[$TAG] Location thread started (~${effectiveInterval}ms)")
     }
 
     /**
@@ -541,7 +562,7 @@ class MelosHookEntry : IXposedHookLoadPackage {
      */
     private fun getCurrentSpoofedLocation(provider: String): Location {
         val now = System.currentTimeMillis()
-        val elapsedSeconds = if (simulator.getStepCount() == 0) {
+        val elapsedSeconds = if (simulator.getStartTime() == 0L) {
             simulator.setStartTime(now)
             0.0
         } else {
@@ -656,6 +677,7 @@ class MelosHookEntry : IXposedHookLoadPackage {
             putFloat("hdop", hdop)
             putFloat("vdop", vdop)
             putFloat("pdop", pdop)
+            putBoolean("melos_spoofed", true)
         }
         location.extras = extras
 

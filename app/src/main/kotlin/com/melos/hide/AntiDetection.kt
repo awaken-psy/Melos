@@ -235,7 +235,9 @@ object AntiDetection {
                 }
             }
         }
-        XposedHelpers.findAndHookMethod(Class::class.java, "forName", String::class.java, handler)
+        // Only hook the 3-param overload — forName(String) delegates to it internally.
+        // Hooking both overloads causes double-callbacks and breaks exception propagation
+        // when another module also hooks Class.forName.
         XposedHelpers.findAndHookMethod(
             Class::class.java, "forName",
             String::class.java, Boolean::class.javaPrimitiveType, ClassLoader::class.java,
@@ -255,12 +257,11 @@ object AntiDetection {
         val filter = object : XC_MethodHook() {
             override fun afterHookedMethod(param: MethodHookParam) {
                 val trace = param.result as? Array<*> ?: return
-                val cleaned = trace.filterNotNull().filter { frame ->
-                    val cls = (frame as? java.lang.StackTraceElement)?.className ?: return@filter true
-                    XPOSED_STACK_PREFIXES.none { cls.startsWith(it) }
+                val cleaned = trace.filterNotNull().mapNotNull { frame ->
+                    val ste = frame as? java.lang.StackTraceElement ?: return@mapNotNull null
+                    if (XPOSED_STACK_PREFIXES.any { ste.className.startsWith(it) }) null else ste
                 }
                 if (cleaned.size != trace.size) {
-                    @Suppress("UNCHECKED_CAST")
                     param.result = cleaned.toTypedArray()
                 }
             }

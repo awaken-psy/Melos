@@ -57,15 +57,8 @@ class WifiCellHookManager(
             "android.net.wifi.WifiManager", lpparam.classLoader
         )
 
-        // Block real WiFi scan
-        XposedHelpers.findAndHookMethod(
-            wmClass, "startScan",
-            object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    param.result = true
-                }
-            }
-        )
+        // Don't block startScan() — WeChat needs real scans during startup.
+        // We only override the results in getScanResults() when we have a position.
 
         // Spoof scan results
         XposedHelpers.findAndHookMethod(
@@ -94,8 +87,10 @@ class WifiCellHookManager(
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val fp = getCurrentFingerprint()
                     if (fp.cell.isEmpty()) return
-                    param.result = fp.cell.mapNotNull { createCellInfo(it) }
-                    XposedBridge.log("[$TAG] getAllCellInfo() → ${fp.cell.size} cells")
+                    val spoofed = fp.cell.mapNotNull { createCellInfo(it) }
+                    if (spoofed.isEmpty()) return  // Keep original if construction fails
+                    param.result = spoofed
+                    XposedBridge.log("[$TAG] getAllCellInfo() → ${spoofed.size} cells")
                 }
             }
         )
@@ -164,26 +159,51 @@ class WifiCellHookManager(
 
     private fun createCellInfo(cell: CellTower): Any? {
         return runCatching {
-            val clazz = XposedHelpers.findClass(
-                "android.telephony.CellInfo${cell.type}", lpparam.classLoader
+            val suffix = cell.type.lowercase().replaceFirstChar { it.uppercase() }
+            val infoClazz = XposedHelpers.findClass(
+                "android.telephony.CellInfo$suffix", lpparam.classLoader
             )
-            val cellInfo = clazz.getDeclaredConstructor().apply { isAccessible = true }.newInstance()
+            val idClazz = XposedHelpers.findClass(
+                "android.telephony.CellIdentity$suffix", lpparam.classLoader
+            )
+            val sigClazz = XposedHelpers.findClass(
+                "android.telephony.CellSignalStrength$suffix", lpparam.classLoader
+            )
 
-            XposedHelpers.setBooleanField(cellInfo, "mRegistered", cell.registered)
-            XposedHelpers.setLongField(cellInfo, "mTimeStamp", SystemClock.elapsedRealtimeNanos())
+            val cellInfo = allocateInstance(infoClazz)
+            val cellIdentity = allocateInstance(idClazz)
+            val cellSignal = allocateInstance(sigClazz)
 
-            when (cell.type) {
+            // CellInfo fields
+            unsafePutBoolean(cellInfo, "mRegistered", cell.registered)
+            unsafePutLong(cellInfo, "mTimeStamp", SystemClock.elapsedRealtimeNanos())
+
+            // CellIdentity fields (in parent CellIdentity — final, need Unsafe)
+            unsafePutInt(cellIdentity, "mMcc", cell.mcc)
+            unsafePutInt(cellIdentity, "mMnc", cell.mnc)
+
+            when (suffix) {
                 "Wcdma" -> {
-                    val id = constructCellIdentityWcdma(cell)
-                    XposedHelpers.setObjectField(cellInfo, "mCellIdentityWcdma", id)
-                    val sig = constructCellSignalStrengthWcdma(cell)
-                    XposedHelpers.setObjectField(cellInfo, "mCellSignalStrengthWcdma", sig)
+                    unsafePutInt(cellIdentity, "mLac", cell.lac)
+                    unsafePutInt(cellIdentity, "mCid", cell.cid)
+                    unsafePutInt(cellIdentity, "mPsc", cell.psc)
+                    unsafePutInt(cellIdentity, "mUarfcn", 0)
+                    XposedHelpers.setObjectField(cellInfo, "mCellIdentityWcdma", cellIdentity)
+                    unsafePutInt(cellSignal, "mDbm", cell.dbm)
+                    unsafePutInt(cellSignal, "mAsuLevel", cell.asu)
+                    unsafePutInt(cellSignal, "mLevel", cell.level)
+                    XposedHelpers.setObjectField(cellInfo, "mCellSignalStrengthWcdma", cellSignal)
                 }
                 "Lte" -> {
-                    val id = constructCellIdentityLte(cell)
-                    XposedHelpers.setObjectField(cellInfo, "mCellIdentityLte", id)
-                    val sig = constructCellSignalStrengthLte(cell)
-                    XposedHelpers.setObjectField(cellInfo, "mCellSignalStrengthLte", sig)
+                    unsafePutInt(cellIdentity, "mCi", cell.cid)
+                    unsafePutInt(cellIdentity, "mPci", cell.psc)
+                    unsafePutInt(cellIdentity, "mTac", cell.lac)
+                    unsafePutInt(cellIdentity, "mEarfcn", 0)
+                    XposedHelpers.setObjectField(cellInfo, "mCellIdentityLte", cellIdentity)
+                    unsafePutInt(cellSignal, "mRsrp", cell.dbm)
+                    unsafePutInt(cellSignal, "mAsuLevel", cell.asu)
+                    unsafePutInt(cellSignal, "mLevel", cell.level)
+                    XposedHelpers.setObjectField(cellInfo, "mCellSignalStrengthLte", cellSignal)
                 }
             }
             cellInfo
@@ -193,57 +213,50 @@ class WifiCellHookManager(
         }
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun constructCellIdentityWcdma(cell: CellTower): Any {
-        val clazz = XposedHelpers.findClass(
-            "android.telephony.CellIdentityWcdma", lpparam.classLoader
-        )
-        return clazz.getDeclaredConstructor(
-            Int::class.java, Int::class.java, Int::class.java,
-            Int::class.java, Int::class.java, Int::class.java,
-            Collection::class.java
-        ).apply { isAccessible = true }.newInstance(
-            cell.mcc, cell.mnc, cell.lac, cell.cid, cell.psc, 0,
-            java.util.Collections.emptyList<Any>()
-        )
+    // Use Unsafe to bypass final field restrictions
+    @Suppress("BanJDBC")
+    private fun allocateInstance(clazz: Class<*>): Any {
+        val unsafeClass = Class.forName("sun.misc.Unsafe")
+        val theUnsafe = unsafeClass.getDeclaredField("theUnsafe").apply { isAccessible = true }.get(null)
+        return unsafeClass.getMethod("allocateInstance", Class::class.java).invoke(theUnsafe, clazz)
     }
 
-    private fun constructCellSignalStrengthWcdma(cell: CellTower): Any {
-        val clazz = XposedHelpers.findClass(
-            "android.telephony.CellSignalStrengthWcdma", lpparam.classLoader
-        )
-        return clazz.getDeclaredConstructor(
-            Int::class.java, Int::class.java, Int::class.java
-        ).apply { isAccessible = true }.newInstance(
-            cell.dbm, cell.asu, cell.level
-        )
+    private fun unsafePutInt(obj: Any, fieldName: String, value: Int) {
+        val field = findField(obj.javaClass, fieldName) ?: return
+        val (unsafe, offset) = getUnsafeOffset(field)
+        unsafe.javaClass.getMethod("putInt", Any::class.java, Long::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            .invoke(unsafe, obj, offset, value)
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun constructCellIdentityLte(cell: CellTower): Any {
-        val clazz = XposedHelpers.findClass(
-            "android.telephony.CellIdentityLte", lpparam.classLoader
-        )
-        return clazz.getDeclaredConstructor(
-            Int::class.java, Int::class.java, Int::class.java,
-            Int::class.java, Int::class.java, Int::class.java,
-            Int::class.java, String::class.java, Collection::class.java
-        ).apply { isAccessible = true }.newInstance(
-            cell.mcc, cell.mnc, cell.cid, cell.psc, cell.lac, 0, 0,
-            "", java.util.Collections.emptyList<Any>()
-        )
+    private fun unsafePutBoolean(obj: Any, fieldName: String, value: Boolean) {
+        val field = findField(obj.javaClass, fieldName) ?: return
+        val (unsafe, offset) = getUnsafeOffset(field)
+        unsafe.javaClass.getMethod("putBoolean", Any::class.java, Long::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
+            .invoke(unsafe, obj, offset, value)
     }
 
-    private fun constructCellSignalStrengthLte(cell: CellTower): Any {
-        val clazz = XposedHelpers.findClass(
-            "android.telephony.CellSignalStrengthLte", lpparam.classLoader
-        )
-        return clazz.getDeclaredConstructor(
-            Int::class.java, Int::class.java, Int::class.java, Int::class.java,
-            Int::class.java, Int::class.java, Int::class.java
-        ).apply { isAccessible = true }.newInstance(
-            cell.dbm, cell.asu, cell.level, 0, 0, 0, 0
-        )
+    private fun unsafePutLong(obj: Any, fieldName: String, value: Long) {
+        val field = findField(obj.javaClass, fieldName) ?: return
+        val (unsafe, offset) = getUnsafeOffset(field)
+        unsafe.javaClass.getMethod("putLong", Any::class.java, Long::class.javaPrimitiveType, Long::class.javaPrimitiveType)
+            .invoke(unsafe, obj, offset, value)
+    }
+
+    private fun findField(clazz: Class<*>, name: String): java.lang.reflect.Field? {
+        var c: Class<*>? = clazz
+        while (c != null) {
+            try { return c.getDeclaredField(name) } catch (_: NoSuchFieldException) { c = c.superclass }
+        }
+        return null
+    }
+
+    @Suppress("BanJDBC")
+    private fun getUnsafeOffset(field: java.lang.reflect.Field): Pair<Any, Long> {
+        val unsafeClass = Class.forName("sun.misc.Unsafe")
+        val theUnsafe = unsafeClass.getDeclaredField("theUnsafe").apply { isAccessible = true }.get(null)!!
+        val offset = unsafeClass.getMethod("objectFieldOffset", java.lang.reflect.Field::class.java)
+            .invoke(theUnsafe, field) as Long
+        return theUnsafe to offset
     }
 
     private fun createNeighboringCellInfo(cell: CellTower): Any? {
