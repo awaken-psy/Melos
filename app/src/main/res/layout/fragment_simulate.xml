@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- Venue -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="场地"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <Spinner
+            android:id="@+id/spinner_venue"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Speed -->
+        <TextView
+            android:id="@+id/tv_speed_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="配速: 2.5 m/s (9.0 km/h)"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <SeekBar
+            android:id="@+id/seekbar_speed"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="45"
+            android:progress="15"
+            android:layout_marginBottom="16dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="1.0"
+                android:textSize="12sp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="走路"
+                android:textSize="12sp"
+                android:layout_weight="1"
+                android:textAlignment="center" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="慢跑"
+                android:textSize="12sp"
+                android:layout_weight="1"
+                android:textAlignment="center" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="快跑"
+                android:textSize="12sp"
+                android:layout_weight="1"
+                android:textAlignment="center" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="5.5"
+                android:textSize="12sp"
+                android:layout_weight="1"
+                android:textAlignment="textEnd" />
+        </LinearLayout>
+
+        <!-- Laps -->
+        <TextView
+            android:id="@+id/tv_laps_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="圈数: 5"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <SeekBar
+            android:id="@+id/seekbar_laps"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="50"
+            android:progress="5"
+            android:layout_marginBottom="24dp" />
+
+        <!-- Status -->
+        <TextView
+            android:id="@+id/tv_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="未启动"
+            android:textSize="14sp"
+            android:fontFamily="monospace"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Start/Stop -->
+        <Button
+            android:id="@+id/btn_start_stop"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="开始模拟"
+            android:textSize="18sp"
+            android:backgroundTint="#4CAF50" />
+
+    </LinearLayout>
+</ScrollView>

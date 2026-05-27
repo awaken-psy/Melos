@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/tvGps"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="GPS: 等待定位..."
+        android:textSize="14sp"
+        android:fontFamily="monospace" />
+
+    <TextView
+        android:id="@+id/tvWifi"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="WiFi: 未扫描"
+        android:textSize="14sp"
+        android:fontFamily="monospace" />
+
+    <TextView
+        android:id="@+id/tvCell"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="基站: 未获取"
+        android:textSize="14sp"
+        android:fontFamily="monospace" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginVertical="8dp"
+        android:background="#CCCCCC" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnCapture"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="点采集"
+            android:layout_marginEnd="4dp" />
+
+        <Button
+            android:id="@+id/btnContinuous"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="连续采集"
+            android:layout_marginHorizontal="4dp" />
+
+        <Button
+            android:id="@+id/btnExport"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="导出"
+            android:layout_marginStart="4dp" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginVertical="8dp"
+        android:background="#CCCCCC" />
+
+    <ListView
+        android:id="@+id/lvCaptures"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:divider="#E0E0E0"
+        android:dividerHeight="1dp" />
+
+</LinearLayout>

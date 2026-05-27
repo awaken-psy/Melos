@@ -22,6 +22,8 @@ import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
+import org.json.JSONObject
+import java.io.File
 
 /**
  * Melos LSPosed Module Entry Point
@@ -87,23 +89,62 @@ class MelosHookEntry : IXposedHookLoadPackage {
 
     private lateinit var trajectoryGenerator: TrajectoryGenerator
 
+    // Config state (refreshed every 5s from file)
+    private var hookConfig = SimHookConfig()
+    private var configLastReadMs = 0L
+
+    private data class SimHookConfig(
+        val enabled: Boolean = true,
+        val venueId: String = "jiading",
+        val speedMps: Double = 2.5,
+        val laps: Int = 0,  // 0 = unlimited
+    )
+
+    private fun refreshConfig() {
+        val now = System.currentTimeMillis()
+        if (now - configLastReadMs < 5000) return
+        configLastReadMs = now
+        try {
+            val file = File("/data/local/tmp/melos_config.json")
+            if (!file.exists()) return
+            val json = JSONObject(file.readText())
+            hookConfig = SimHookConfig(
+                enabled = json.optBoolean("enabled", true),
+                venueId = json.optString("venue_id", "jiading"),
+                speedMps = json.optDouble("speed_mps", 2.5),
+                laps = json.optInt("laps", 0),
+            )
+        } catch (_: Exception) {}
+    }
+
+    private fun selectTrackForVenue(venueId: String): TrackProfile {
+        return when (venueId) {
+            "tongji" -> TONGJI_TRACK
+            else -> JIADING_TRACK
+        }
+    }
+
     private fun initTrajectoryGenerator() {
+        refreshConfig()
+        val speed = hookConfig.speedMps
+        val track = selectTrackForVenue(hookConfig.venueId)
+
         realTrackData = RealTrackLoader.load()
         if (realTrackData != null) {
-            val track = realTrackData!!.trackProfile
-            XposedBridge.log("[$TAG] Real track loaded: ${track.name}, ${track.perimeterMeters.toInt()}m perimeter")
+            val rt = realTrackData!!.trackProfile
+            XposedBridge.log("[$TAG] Real track loaded: ${rt.name}, ${rt.perimeterMeters.toInt()}m perimeter")
             trajectoryGenerator = TrajectoryGenerator(
-                trackProfile = track,
-                meanSpeedMps = RUNNING_SPEED_MPS.toDouble(),
+                trackProfile = rt,
+                meanSpeedMps = speed,
                 speedVariation = 0.10,
                 wanderMeters = 2.0,
                 realSpeedAltitudeProfile = realTrackData!!.speedAltitudeProfile,
             )
         } else {
-            XposedBridge.log("[$TAG] No real track data, using mathematical model")
+            XposedBridge.log("[$TAG] No real track data, using ${track.name}")
             trajectoryGenerator = TrajectoryGenerator(
-                trackProfile = JIADING_TRACK,
-                meanSpeedMps = RUNNING_SPEED_MPS.toDouble(),
+                trackProfile = track,
+                meanSpeedMps = speed,
                 speedVariation = 0.15,
                 wanderMeters = 2.0,
             )
@@ -669,6 +710,23 @@ class MelosHookEntry : IXposedHookLoadPackage {
      * Get the current spoofed location based on trajectory generation.
      */
     private fun getCurrentSpoofedLocation(provider: String): Location {
+        refreshConfig()
+
+        // Check if simulation is disabled
+        if (!hookConfig.enabled) {
+            return createLocationFromTrajectory(
+                TrajectoryPoint(
+                    position = LatLng(DEFAULT_LAT, DEFAULT_LON),
+                    altitudeMeters = 10.0,
+                    bearingDeg = 0f,
+                    speedMps = 0f,
+                    accuracyMeters = 50f,
+                    timestampMillis = 0L,
+                    elapsedDistanceMeters = 0.0,
+                ), provider
+            )
+        }
+
         val now = System.currentTimeMillis()
         val elapsedSeconds = if (simulator.getStartTime() == 0L) {
             simulator.setStartTime(now)
@@ -679,7 +737,25 @@ class MelosHookEntry : IXposedHookLoadPackage {
 
         // Generate next trajectory point
         val prevDist = lastTrajectoryPoint?.elapsedDistanceMeters ?: 0.0
-        val point = trajectoryGenerator.nextPoint(elapsedSeconds)
+        var point = trajectoryGenerator.nextPoint(elapsedSeconds)
+
+        // Check lap limit — freeze at last position when laps exceeded
+        val maxLaps = hookConfig.laps
+        if (maxLaps > 0 && point.elapsedDistanceMeters > maxLaps * trajectoryGenerator.getCurrentDistance().coerceAtLeast(1.0)) {
+            val perimeter = lastTrajectoryPoint?.elapsedDistanceMeters?.let {
+                val profile = realTrackData?.trackProfile
+                profile?.perimeterMeters ?: 400.0
+            } ?: 400.0
+            if (point.elapsedDistanceMeters > maxLaps * perimeter) {
+                lastTrajectoryPoint?.let { frozen ->
+                    point = frozen.copy(
+                        speedMps = 0f,
+                        accuracyMeters = 10f,
+                        timestampMillis = (elapsedSeconds * 1000).toLong(),
+                    )
+                }
+            }
+        }
 
         // Compute bearing change rate from consecutive trajectory points
         val prevPoint = lastTrajectoryPoint

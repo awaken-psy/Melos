@@ -48,6 +48,9 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("com.google.android.material:material:1.11.0")
+    implementation("androidx.fragment:fragment-ktx:1.6.2")
+    implementation("androidx.recyclerview:recyclerview:1.3.2")
 
     // The trajectory engine is pure Kotlin/JVM logic, unit-testable without a device.
     testImplementation(libs.junit)

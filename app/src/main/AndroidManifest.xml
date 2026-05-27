@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application
         android:allowBackup="false"
@@ -9,32 +12,43 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="true">
 
-        <!-- Launcher activity: trajectory map preview -->
+        <!-- Main launcher: 3-tab UI (simulate / collector / log) -->
         <activity
-            android:name=".TrajectoryMapActivity"
+            android:name=".ui.MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- Marks this APK as an Xposed/LSPosed module. -->
+        <!-- Collector map (reused from collector module) -->
+        <activity
+            android:name=".collector.MapActivity"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
+
+        <!-- Trajectory map preview -->
+        <activity
+            android:name=".TrajectoryMapActivity"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
+
+        <!-- Collector foreground service -->
+        <service
+            android:name=".collector.RecordingService"
+            android:foregroundServiceType="location" />
+
+        <!-- Xposed / LSPosed module metadata -->
         <meta-data
             android:name="xposedmodule"
             android:value="true" />
-
         <meta-data
             android:name="xposeddescription"
             android:value="@string/xposed_description" />
-
-        <!-- Minimum Xposed API level (82 = classic de.robv API, supported by LSPosed/Vector). -->
         <meta-data
             android:name="xposedminversion"
             android:value="82" />
-
-        <!-- Default scope shown in the LSPosed manager; user still confirms activation. -->
         <meta-data
             android:name="xposedscope"
             android:resource="@array/xposed_scope" />
