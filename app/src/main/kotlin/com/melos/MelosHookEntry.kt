@@ -95,6 +95,10 @@ class MelosHookEntry : IXposedHookLoadPackage {
     private val fingerprintDatabase = FingerprintDatabase()
     private var wifiCellHookManager: WifiCellHookManager? = null
 
+    // Cache replacement coordinates for real Location objects (GMS leaks).
+    // Keyed by identity so each Location object gets ONE fixed replacement position.
+    private val locationReplacements = java.util.IdentityHashMap<Location, Location>()
+
     // Recently emitted fixes, kept so fused getLocations()/getLastLocation()
     // stay mutually consistent and can return a plausible short batch.
     private var lastSpoofedLocation: Location? = null
@@ -151,14 +155,27 @@ class MelosHookEntry : IXposedHookLoadPackage {
             override fun afterHookedMethod(param: MethodHookParam) {
                 val loc = param.thisObject as? Location ?: return
                 if (loc.extras?.getBoolean("melos_spoofed") == true) return
-                val spoofed = lastSpoofedLocation ?: getCurrentSpoofedLocation("anti-leak")
+
+                // Lock replacement position on first access per Location object
+                var cached = locationReplacements[loc]
+                if (cached == null) {
+                    cached = lastSpoofedLocation ?: getCurrentSpoofedLocation("anti-leak")
+                    locationReplacements[loc] = cached
+                    // Evict oldest entries to bound memory
+                    while (locationReplacements.size > 200) {
+                        val iter = locationReplacements.keys.iterator()
+                        iter.next()
+                        iter.remove()
+                    }
+                }
+
                 when (param.method.name) {
-                    "getLatitude" -> param.result = spoofed.latitude
-                    "getLongitude" -> param.result = spoofed.longitude
-                    "getAltitude" -> param.result = spoofed.altitude
-                    "getSpeed" -> param.result = spoofed.speed
-                    "getBearing" -> param.result = spoofed.bearing
-                    "getAccuracy" -> param.result = spoofed.accuracy
+                    "getLatitude" -> param.result = cached.latitude
+                    "getLongitude" -> param.result = cached.longitude
+                    "getAltitude" -> param.result = cached.altitude
+                    "getSpeed" -> param.result = cached.speed
+                    "getBearing" -> param.result = cached.bearing
+                    "getAccuracy" -> param.result = cached.accuracy
                 }
             }
         }
