@@ -12,6 +12,8 @@ import com.melos.sensor.SensorHookManager
 import com.melos.sensor.SensorSimulator
 import com.melos.trajectory.GeoUtils
 import com.melos.trajectory.LatLng
+import com.melos.trajectory.RealTrackData
+import com.melos.trajectory.RealTrackLoader
 import com.melos.trajectory.TrackProfile
 import com.melos.trajectory.TrajectoryGenerator
 import com.melos.trajectory.TrajectoryPoint
@@ -83,17 +85,36 @@ class MelosHookEntry : IXposedHookLoadPackage {
         runningSpeedMps = RUNNING_SPEED_MPS
     )
 
-    private val trajectoryGenerator = TrajectoryGenerator(
-        trackProfile = JIADING_TRACK,
-        meanSpeedMps = RUNNING_SPEED_MPS.toDouble(),
-        speedVariation = 0.15,
-        wanderMeters = 2.0
-    )
+    private lateinit var trajectoryGenerator: TrajectoryGenerator
+
+    private fun initTrajectoryGenerator() {
+        realTrackData = RealTrackLoader.load()
+        if (realTrackData != null) {
+            val track = realTrackData!!.trackProfile
+            XposedBridge.log("[$TAG] Real track loaded: ${track.name}, ${track.perimeterMeters.toInt()}m perimeter")
+            trajectoryGenerator = TrajectoryGenerator(
+                trackProfile = track,
+                meanSpeedMps = RUNNING_SPEED_MPS.toDouble(),
+                speedVariation = 0.10,
+                wanderMeters = 2.0,
+                realSpeedAltitudeProfile = realTrackData!!.speedAltitudeProfile,
+            )
+        } else {
+            XposedBridge.log("[$TAG] No real track data, using mathematical model")
+            trajectoryGenerator = TrajectoryGenerator(
+                trackProfile = JIADING_TRACK,
+                meanSpeedMps = RUNNING_SPEED_MPS.toDouble(),
+                speedVariation = 0.15,
+                wanderMeters = 2.0,
+            )
+        }
+    }
 
     private var lastTrajectoryPoint: TrajectoryPoint? = null
     private var sensorHookManager: SensorHookManager? = null
     private val fingerprintDatabase = FingerprintDatabase()
     private var wifiCellHookManager: WifiCellHookManager? = null
+    private var realTrackData: RealTrackData? = null
 
     // Cache replacement coordinates for real Location objects (GMS leaks).
     // Keyed by identity so each Location object gets ONE fixed replacement position.
@@ -125,6 +146,7 @@ class MelosHookEntry : IXposedHookLoadPackage {
         XposedBridge.log("[$TAG] WeChat detected, initializing Melos hooks...")
 
         try {
+            initTrajectoryGenerator()
             // Hide the root/Xposed environment first — if the tracker detects a
             // tampered device it can reject the run before any spoofing matters.
             AntiDetection.installHooks(lpparam)

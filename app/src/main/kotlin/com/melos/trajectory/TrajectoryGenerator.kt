@@ -22,6 +22,7 @@ class TrajectoryGenerator(
     private val meanSpeedMps: Double = 2.5,  // ~9 km/h, comfortable jog
     private val speedVariation: Double = 0.15,  // ±15% speed variation
     private val wanderMeters: Double = 2.0,    // Max path wander from center line
+    private val realSpeedAltitudeProfile: List<ProfilePoint>? = null,
 ) {
     companion object {
         // Human motion constraints
@@ -37,6 +38,11 @@ class TrajectoryGenerator(
 
     // GPS accuracy random walk — smooth transitions, not instant jumps
     private var currentAccuracyMeters = 5.0f
+
+    // Per-lap offset for track variation (1–2 m drift each lap)
+    private var lapOffsetEast = 0.0
+    private var lapOffsetNorth = 0.0
+    private var completedLaps = 0
 
     // Track geometry caching
     private val cornerZones = detectCornerZones()
@@ -104,15 +110,23 @@ class TrajectoryGenerator(
         // Advance along track
         currentDistance += currentSpeed * dt
 
+        // Detect lap completion and apply per-lap drift
+        val newLap = (currentDistance / trackProfile.perimeterMeters).toInt()
+        if (newLap > completedLaps) {
+            completedLaps = newLap
+            lapOffsetEast += (Math.random() - 0.5) * 1.0
+            lapOffsetNorth += (Math.random() - 0.5) * 1.0
+        }
+
         // Get position on track
         val posOnTrack = trackProfile.pointAtDistance(currentDistance)
 
-        // Add natural wander (Perlin-like noise using sin superposition)
+        // Add natural wander (Perlin-like noise using sin superposition) + lap drift
         val wanderOffset = calculateWander(elapsedSeconds)
         val actualPosition = GeoUtils.offsetMeters(
             posOnTrack.position,
-            wanderOffset.first,
-            wanderOffset.second
+            wanderOffset.first + lapOffsetEast,
+            wanderOffset.second + lapOffsetNorth
         )
 
         // Calculate realistic altitude (vary gently along track)
@@ -138,23 +152,24 @@ class TrajectoryGenerator(
      */
     private fun calculateTargetSpeed(distance: Double, elapsedSeconds: Double): Double {
         val perimeter = trackProfile.perimeterMeters
-        val relativeDist = distance % perimeter
+        val fraction = (distance % perimeter) / perimeter
 
-        // Check if we're in a corner zone
-        val inCorner = cornerZones.any { (start, end) ->
-            when {
-                start < end -> relativeDist in start..end
-                else -> relativeDist >= start || relativeDist <= end  // Wraps around lap
-            }
-        }
-
-        val baseSpeed = if (inCorner) {
-            min(meanSpeedMps * 0.7, MIN_CORNER_SPEED * 1.5)
+        // Base speed: real profile or mathematical model
+        val baseSpeed = if (realSpeedAltitudeProfile != null && realSpeedAltitudeProfile.size >= 2) {
+            interpolateProfile(fraction) { it.speedMps }.coerceIn(0.5, 6.0)
         } else {
-            meanSpeedMps * 1.1  // Slightly faster on straights
+            val relativeDist = distance % perimeter
+            val inCorner = cornerZones.any { (start, end) ->
+                when {
+                    start < end -> relativeDist in start..end
+                    else -> relativeDist >= start || relativeDist <= end
+                }
+            }
+            if (inCorner) min(meanSpeedMps * 0.7, MIN_CORNER_SPEED * 1.5)
+            else meanSpeedMps * 1.1
         }
 
-        // Add Perlin-like speed variation (3-frequency superposition for smooth noise)
+        // Perlin-like speed variation
         val variation = (sin(distance * 0.01) * 0.5 +
                         sin(distance * 0.03) * 0.3 +
                         sin(distance * 0.1) * 0.2) * speedVariation
@@ -168,6 +183,22 @@ class TrajectoryGenerator(
         }
 
         return max(0.5, baseSpeed * (1 + variation) * warmupFactor)
+    }
+
+    private inline fun interpolateProfile(fraction: Double, selector: (ProfilePoint) -> Double): Double {
+        val profile = realSpeedAltitudeProfile ?: return meanSpeedMps
+        val f = fraction.coerceIn(0.0, 1.0)
+        // Find surrounding points
+        var lo = 0
+        var hi = profile.size - 1
+        for (i in 0 until profile.size - 1) {
+            if (profile[i].fraction <= f && profile[i + 1].fraction >= f) {
+                lo = i; hi = i + 1; break
+            }
+        }
+        val segLen = profile[hi].fraction - profile[lo].fraction
+        val t = if (segLen > 0.0) (f - profile[lo].fraction) / segLen else 0.0
+        return selector(profile[lo]) * (1 - t) + selector(profile[hi]) * t
     }
 
     /**
@@ -218,6 +249,14 @@ class TrajectoryGenerator(
      * Real tracks have slight elevation changes; we simulate gentle variation.
      */
     private fun calculateAltitude(distance: Double, time: Double): Double {
+        // Real altitude profile if available
+        if (realSpeedAltitudeProfile != null && realSpeedAltitudeProfile.size >= 2) {
+            val fraction = ((distance % trackProfile.perimeterMeters) / trackProfile.perimeterMeters)
+            val base = interpolateProfile(fraction) { it.altitudeMeters }
+            // Micro variation (arm bob, GPS noise)
+            return base + sin(time * 10) * 0.1
+        }
+
         val baseAltitude = 10.0  // Starting altitude, metres
         val perimeter = trackProfile.perimeterMeters
 

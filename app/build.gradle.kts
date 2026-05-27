@@ -47,6 +47,7 @@ dependencies {
     compileOnly(files("libs/xposed-api-82.jar"))
 
     implementation(libs.androidx.core.ktx)
+    implementation("androidx.appcompat:appcompat:1.6.1")
 
     // The trajectory engine is pure Kotlin/JVM logic, unit-testable without a device.
     testImplementation(libs.junit)
