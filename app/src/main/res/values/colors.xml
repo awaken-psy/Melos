@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- MD3 Primary -->
+    <color name="md_primary">#FF1565C0</color>
+    <color name="md_on_primary">#FFFFFFFF</color>
+    <color name="md_primary_container">#FFD1E4FF</color>
+    <color name="md_on_primary_container">#FF001D36</color>
+
+    <!-- MD3 Surface -->
+    <color name="md_surface">#FFFAFAFA</color>
+    <color name="md_on_surface">#FF1C1B1F</color>
+    <color name="md_surface_variant">#FFF2F2F7</color>
+    <color name="md_on_surface_variant">#FF44474E</color>
+    <color name="md_surface_container">#FFF0F0F5</color>
+    <color name="md_surface_container_low">#FFF5F5FA</color>
+    <color name="md_surface_container_high">#FFEAEAEE</color>
+    <color name="md_outline_variant">#FFC4C6D0</color>
+    <color name="md_outline">#FF74777F</color>
+
+    <!-- Semantic -->
+    <color name="success">#FF2E7D32</color>
+    <color name="success_container">#FFB9F6CA</color>
+    <color name="error">#FFC62828</color>
+    <color name="error_container">#FFFFCDD2</color>
+    <color name="warning">#FFE65100</color>
+    <color name="warning_container">#FFFFE0B2</color>
+    <color name="info">#FF1565C0</color>
+    <color name="info_container">#FFD1E4FF</color>
+
+    <!-- Text -->
+    <color name="text_primary">#DD000000</color>
+    <color name="text_secondary">#99000000</color>
+    <color name="text_hint">#61000000</color>
+
+    <!-- Nav -->
+    <color name="nav_selected">#FF1565C0</color>
+    <color name="nav_unselected">#99000000</color>
+    <color name="nav_background">#FFFFFFFF</color>
+</resources>

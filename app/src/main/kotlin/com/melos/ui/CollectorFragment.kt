@@ -2,7 +2,10 @@ package com.melos.ui
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -58,9 +61,37 @@ class CollectorFragment : Fragment() {
     private var recordingHandler: Handler? = null
     private var scanRunnable: Runnable? = null
 
+    private val locationListener = object : LocationListener {
+        override fun onLocationChanged(loc: Location) {
+            currentLocation = loc
+            if (isRecording) recordSample()
+            activity?.runOnUiThread { updateStatus() }
+        }
+        override fun onProviderDisabled(provider: String) {}
+        override fun onProviderEnabled(provider: String) {}
+    }
+
+    private val wifiScanReceiver = object : BroadcastReceiver() {
+        @SuppressLint("MissingPermission")
+        override fun onReceive(ctx: Context, intent: Intent) {
+            if (intent.action == WifiManager.SCAN_RESULTS_AVAILABLE_ACTION) {
+                val wm = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                wifiResults = wm.scanResults ?: emptyList()
+                updateStatus()
+                view?.let { v ->
+                    val snackbar = com.google.android.material.snackbar.Snackbar.make(v, "刷新成功", com.google.android.material.snackbar.Snackbar.LENGTH_SHORT)
+                    snackbar.anchorView = activity?.findViewById(R.id.bottom_nav)
+                    snackbar.show()
+                }
+            }
+        }
+    }
+
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         return inflater.inflate(R.layout.fragment_collector, container, false)
     }
+
+    private var permissionsGranted = false
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -78,12 +109,15 @@ class CollectorFragment : Fragment() {
         )
         listView.adapter = adapter
 
-        requestPermissions()
-
         btnCapture.setOnClickListener { capturePoint() }
         btnContinuous.setOnClickListener { toggleContinuous() }
         view.findViewById<Button>(R.id.btnExport).setOnClickListener { showVenueDialog() }
-        view.findViewById<Button>(R.id.btnRefresh).setOnClickListener { refreshWifiAndCell(); updateStatus() }
+        view.findViewById<Button>(R.id.btnRefresh).setOnClickListener { triggerRefresh() }
+
+        restoreRecordingState()
+        requestPermissions()
+
+        requireContext().registerReceiver(wifiScanReceiver, IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION))
     }
 
     override fun onResume() {
@@ -91,6 +125,11 @@ class CollectorFragment : Fragment() {
         if (isRecording && !RecordingService.isRunning) {
             finalizeRecording()
         }
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        try { requireContext().unregisterReceiver(wifiScanReceiver) } catch (_: Exception) {}
     }
 
     // ── Permissions ──────────────────────────────────────────────────
@@ -106,7 +145,24 @@ class CollectorFragment : Fragment() {
         if (ungranted.isNotEmpty()) {
             ActivityCompat.requestPermissions(requireActivity(), ungranted.toTypedArray(), 1)
         } else {
+            permissionsGranted = true
             startListening()
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        if (requestCode == 1 && grantResults.all { it == android.content.pm.PackageManager.PERMISSION_GRANTED }) {
+            permissionsGranted = true
+            startListening()
+        }
+    }
+
+    private fun restoreRecordingState() {
+        if (RecordingService.isRunning && !isRecording) {
+            isRecording = true
+            recordingStartTime = System.currentTimeMillis() - 30_000
+            btnContinuous.text = "停止录制"
+            btnCapture.isEnabled = false
         }
     }
 
@@ -124,15 +180,7 @@ class CollectorFragment : Fragment() {
                         currentLocation = it
                     }
                 }
-                lm.requestLocationUpdates(p, 1000, 0f, object : LocationListener {
-                    override fun onLocationChanged(loc: Location) {
-                        currentLocation = loc
-                        if (isRecording) recordSample()
-                        activity?.runOnUiThread { updateStatus() }
-                    }
-                    override fun onProviderDisabled(provider: String) {}
-                    override fun onProviderEnabled(provider: String) {}
-                })
+                lm.requestLocationUpdates(p, 1000, 0f, locationListener)
             }
         }
         refreshWifiAndCell()
@@ -152,6 +200,28 @@ class CollectorFragment : Fragment() {
             wifiResults = emptyList()
             cellResults = emptyList()
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun triggerRefresh() {
+        try {
+            val ctx = requireContext().applicationContext
+            val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            for (p in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
+                if (lm.isProviderEnabled(p)) {
+                    lm.getLastKnownLocation(p)?.let {
+                        if (currentLocation == null || it.time > currentLocation!!.time) {
+                            currentLocation = it
+                        }
+                    }
+                }
+            }
+            val wm = ctx.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            wm.startScan()
+            val tm = ctx.getSystemService(android.content.Context.TELEPHONY_SERVICE) as TelephonyManager
+            cellResults = tm.allCellInfo ?: emptyList()
+            updateStatus()
+        } catch (_: Exception) {}
     }
 
     private fun updateStatus() {

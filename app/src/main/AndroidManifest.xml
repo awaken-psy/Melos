@@ -18,7 +18,7 @@
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.AppCompat.Light.NoActionBar"
+            android:theme="@style/Theme.Melos"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -29,12 +29,12 @@
         <!-- Collector map (reused from collector module) -->
         <activity
             android:name=".collector.MapActivity"
-            android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
+            android:theme="@style/Theme.Melos" />
 
         <!-- Trajectory map preview -->
         <activity
             android:name=".TrajectoryMapActivity"
-            android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
+            android:theme="@style/Theme.Melos" />
 
         <!-- Collector foreground service -->
         <service

@@ -1,95 +1,67 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical">
+    android:background="@color/md_surface">
 
-    <!-- Toolbar with clear button -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="8dp"
-        android:gravity="center_vertical">
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="运行日志"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <Button
-            android:id="@+id/btnClearLog"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="清除"
-            android:textSize="12sp" />
-    </LinearLayout>
-
-    <!-- Anomaly section (expanded by default) -->
-    <LinearLayout
-        android:id="@+id/section_anomaly"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/tv_anomaly_header"
+        <com.google.android.material.tabs.TabLayout
+            android:id="@+id/tab_layout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:padding="12dp"
-            android:text="▼ 异常日志 (0)"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            android:textColor="#D32F2F"
-            android:background="#FFEBEE" />
+            android:layout_marginHorizontal="16dp"
+            app:tabMode="fixed"
+            app:tabIndicatorColor="@color/md_primary"
+            app:tabSelectedTextColor="@color/md_primary"
+            app:tabTextColor="@color/text_secondary"
+            app:tabIndicatorFullWidth="false"
+            app:tabIndicatorHeight="3dp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/md_outline_variant"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginBottom="4dp" />
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_anomaly"
             android:layout_width="match_parent"
-            android:layout_height="match_parent" />
-    </LinearLayout>
-
-    <!-- All logs section (collapsed by default) -->
-    <LinearLayout
-        android:id="@+id/section_all"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:orientation="vertical"
-        android:visibility="gone">
-
-        <TextView
-            android:id="@+id/tv_all_header"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:padding="12dp"
-            android:text="▶ 全部日志 (0)"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            android:textColor="#1976D2"
-            android:background="#E3F2FD" />
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingHorizontal="12dp"
+            android:paddingBottom="8dp" />
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_all"
             android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingHorizontal="12dp"
+            android:paddingBottom="8dp"
+            android:visibility="gone" />
+
     </LinearLayout>
 
-    <!-- Collapsed header for anomaly when all is shown -->
-    <TextView
-        android:id="@+id/tv_anomaly_collapsed"
-        android:layout_width="match_parent"
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fabClearLog"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:padding="12dp"
-        android:text="▼ 异常日志 (0)"
-        android:textSize="14sp"
-        android:textStyle="bold"
-        android:textColor="#D32F2F"
-        android:background="#FFEBEE"
-        android:visibility="gone" />
+        android:layout_gravity="bottom|end"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="96dp"
+        android:src="@drawable/ic_delete"
+        android:contentDescription="清除日志"
+        app:backgroundTint="@color/error"
+        app:tint="@android:color/white"
+        app:fabSize="normal"
+        app:elevation="6dp" />
 
-</LinearLayout>
+</FrameLayout>

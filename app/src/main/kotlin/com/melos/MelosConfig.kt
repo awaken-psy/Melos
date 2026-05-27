@@ -13,6 +13,7 @@ object MelosConfig {
         val name: String,
         val centerLat: Double,
         val centerLng: Double,
+        val perimeterMeters: Double = 400.0,
     )
 
     val VENUES = listOf(

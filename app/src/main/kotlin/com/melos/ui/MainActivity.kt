@@ -1,9 +1,9 @@
 package com.melos.ui
 
 import android.os.Bundle
-import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
+import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.melos.R
 
@@ -14,13 +14,14 @@ class MainActivity : AppCompatActivity() {
     private val logFragment = LogFragment()
 
     private var activeFragment: Fragment = simulateFragment
-    private lateinit var tvTitle: TextView
+    private lateinit var toolbar: MaterialToolbar
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        tvTitle = findViewById(R.id.tv_title)
+        toolbar = findViewById(R.id.toolbar)
+        toolbar.title = "模拟"
 
         supportFragmentManager.beginTransaction().apply {
             add(R.id.nav_host, logFragment, "log").hide(logFragment)
@@ -42,7 +43,7 @@ class MainActivity : AppCompatActivity() {
                 }.commit()
                 activeFragment = target.first
             }
-            tvTitle.text = target.second
+            toolbar.title = target.second
             true
         }
     }

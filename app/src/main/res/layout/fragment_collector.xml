@@ -1,90 +1,136 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:background="@color/md_surface">
 
-    <TextView
-        android:id="@+id/tvGps"
+    <!-- Status Card -->
+    <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="GPS: 等待定位..."
-        android:textSize="14sp"
-        android:fontFamily="monospace" />
+        android:layout_margin="16dp"
+        app:cardBackgroundColor="@color/md_surface_container_low"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="0dp"
+        app:strokeColor="@color/md_outline_variant"
+        app:strokeWidth="1dp">
 
-    <TextView
-        android:id="@+id/tvWifi"
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:id="@+id/tvGps"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="GPS: 等待定位..."
+                android:textSize="13sp"
+                android:fontFamily="monospace"
+                android:textColor="@color/text_primary"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                android:id="@+id/tvWifi"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="WiFi: 未扫描"
+                android:textSize="13sp"
+                android:fontFamily="monospace"
+                android:textColor="@color/text_primary"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                android:id="@+id/tvCell"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="基站: 未获取"
+                android:textSize="13sp"
+                android:fontFamily="monospace"
+                android:textColor="@color/text_primary" />
+
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Action buttons: 2x2 grid -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="WiFi: 未扫描"
-        android:textSize="14sp"
-        android:fontFamily="monospace" />
+        android:orientation="horizontal"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginBottom="12dp">
 
-    <TextView
-        android:id="@+id/tvCell"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="基站: 未获取"
-        android:textSize="14sp"
-        android:fontFamily="monospace" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCapture"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="6dp"
+            android:text="点采集"
+            android:textSize="13sp"
+            app:cornerRadius="12dp"
+            app:strokeColor="@color/md_outline" />
 
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:layout_marginVertical="8dp"
-        android:background="#CCCCCC" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnContinuous"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:text="连续采集"
+            android:textSize="13sp"
+            app:cornerRadius="12dp"
+            app:strokeColor="@color/md_outline" />
+
+    </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginBottom="12dp">
 
-        <Button
-            android:id="@+id/btnCapture"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="点采集"
-            android:layout_marginEnd="3dp" />
-
-        <Button
-            android:id="@+id/btnContinuous"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="连续采集"
-            android:layout_marginHorizontal="3dp" />
-
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnExport"
+            style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="48dp"
             android:layout_weight="1"
+            android:layout_marginEnd="6dp"
             android:text="导出"
-            android:layout_marginHorizontal="3dp" />
+            android:textSize="13sp"
+            app:cornerRadius="12dp"
+            app:strokeColor="@color/md_outline" />
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnRefresh"
+            style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="48dp"
             android:layout_weight="1"
+            android:layout_marginStart="6dp"
             android:text="刷新"
-            android:layout_marginStart="3dp" />
+            android:textSize="13sp"
+            app:cornerRadius="12dp"
+            app:strokeColor="@color/md_outline" />
+
     </LinearLayout>
 
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:layout_marginVertical="8dp"
-        android:background="#CCCCCC" />
-
+    <!-- Captures list -->
     <ListView
         android:id="@+id/lvCaptures"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:divider="#E0E0E0"
-        android:dividerHeight="1dp" />
+        android:divider="@android:color/transparent"
+        android:dividerHeight="8dp"
+        android:clipToPadding="false"
+        android:paddingHorizontal="16dp" />
 
 </LinearLayout>

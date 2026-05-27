@@ -3,7 +3,8 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="8dp">
+    android:paddingHorizontal="8dp"
+    android:paddingVertical="6dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -16,18 +17,19 @@
             android:layout_height="wrap_content"
             android:text="12:00:00"
             android:textSize="11sp"
-            android:textColor="#888888"
+            android:textColor="@color/text_hint"
             android:fontFamily="monospace" />
 
         <TextView
             android:id="@+id/tv_log_level"
-            android:layout_width="wrap_content"
+            android:layout_width="24dp"
             android:layout_height="wrap_content"
             android:text="I"
             android:textSize="11sp"
             android:textStyle="bold"
             android:layout_marginStart="6dp"
-            android:fontFamily="monospace" />
+            android:fontFamily="monospace"
+            android:gravity="center" />
 
         <TextView
             android:id="@+id/tv_log_tag"
@@ -35,7 +37,7 @@
             android:layout_height="wrap_content"
             android:text="Melos"
             android:textSize="11sp"
-            android:textColor="#666666"
+            android:textColor="@color/text_secondary"
             android:layout_marginStart="6dp"
             android:fontFamily="monospace" />
     </LinearLayout>
@@ -47,6 +49,7 @@
         android:text="message"
         android:textSize="12sp"
         android:fontFamily="monospace"
+        android:textColor="@color/text_primary"
         android:layout_marginTop="2dp" />
 
 </LinearLayout>

@@ -1,107 +1,177 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="16dp">
+    android:background="@color/md_surface"
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:padding="20dp">
 
-        <!-- Venue -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="场地"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <Spinner
-            android:id="@+id/spinner_venue"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginBottom="16dp" />
-
-        <!-- Speed -->
-        <TextView
-            android:id="@+id/tv_speed_label"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="配速: 2.5 m/s (9.0 km/h)"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <SeekBar
-            android:id="@+id/seekbar_speed"
+        <!-- Venue Card -->
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:max="45"
-            android:progress="15"
-            android:layout_marginBottom="16dp" />
+            android:layout_marginBottom="16dp"
+            app:cardBackgroundColor="@color/md_surface_container_low"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/md_outline_variant"
+            app:strokeWidth="1dp">
 
-        <LinearLayout
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="场地"
+                    android:textSize="12sp"
+                    android:textColor="@color/md_on_surface_variant"
+                    android:letterSpacing="0.05"
+                    android:textAllCaps="true"
+                    android:layout_marginBottom="8dp" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                    app:boxCornerRadiusTopStart="8dp"
+                    app:boxCornerRadiusTopEnd="8dp"
+                    app:boxCornerRadiusBottomStart="8dp"
+                    app:boxCornerRadiusBottomEnd="8dp">
+
+                    <AutoCompleteTextView
+                        android:id="@+id/spinner_venue"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:minHeight="48dp"
+                        android:inputType="none"
+                        android:textSize="15sp"
+                        android:paddingTop="12dp"
+                        android:paddingBottom="12dp"
+                        android:text="嘉定大操场" />
+
+                </com.google.android.material.textfield.TextInputLayout>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Pace Card -->
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="16dp"
+            app:cardBackgroundColor="@color/md_surface_container_low"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/md_outline_variant"
+            app:strokeWidth="1dp">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="1.0"
-                android:textSize="12sp"
-                android:layout_weight="1" />
+                android:orientation="vertical"
+                android:padding="16dp">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="走路"
-                android:textSize="12sp"
-                android:layout_weight="1"
-                android:textAlignment="center" />
+                <TextView
+                    android:id="@+id/tv_pace_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="配速  4分10秒/公里"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/md_on_surface" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="慢跑"
-                android:textSize="12sp"
-                android:layout_weight="1"
-                android:textAlignment="center" />
+                <com.google.android.material.slider.Slider
+                    android:id="@+id/slider_pace"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginVertical="8dp"
+                    android:stepSize="10"
+                    android:valueFrom="180"
+                    android:valueTo="540"
+                    android:value="250"
+                    app:thumbColor="@color/md_primary"
+                    app:trackColorActive="@color/md_primary"
+                    app:trackColorInactive="@color/md_primary_container" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="快跑"
-                android:textSize="12sp"
-                android:layout_weight="1"
-                android:textAlignment="center" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="5.5"
-                android:textSize="12sp"
-                android:layout_weight="1"
-                android:textAlignment="textEnd" />
-        </LinearLayout>
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="3:00/km"
+                        android:textSize="11sp"
+                        android:textColor="@color/text_hint" />
 
-        <!-- Laps -->
-        <TextView
-            android:id="@+id/tv_laps_label"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="圈数: 5"
-            android:textSize="16sp"
-            android:textStyle="bold" />
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
 
-        <SeekBar
-            android:id="@+id/seekbar_laps"
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="9:00/km"
+                        android:textSize="11sp"
+                        android:textColor="@color/text_hint" />
+                </LinearLayout>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Laps Card -->
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:max="50"
-            android:progress="5"
-            android:layout_marginBottom="24dp" />
+            android:layout_marginBottom="16dp"
+            app:cardBackgroundColor="@color/md_surface_container_low"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/md_outline_variant"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:id="@+id/tv_laps_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="圈数  5 圈"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/md_on_surface" />
+
+                <com.google.android.material.slider.Slider
+                    android:id="@+id/slider_laps"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginVertical="8dp"
+                    android:stepSize="1"
+                    android:valueFrom="1"
+                    android:valueTo="10"
+                    android:value="5"
+                    app:thumbColor="@color/md_primary"
+                    app:trackColorActive="@color/md_primary"
+                    app:trackColorInactive="@color/md_primary_container" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
 
         <!-- Status -->
         <TextView
@@ -109,18 +179,36 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="未启动"
-            android:textSize="14sp"
+            android:textSize="13sp"
             android:fontFamily="monospace"
+            android:textColor="@color/text_secondary"
             android:layout_marginBottom="16dp" />
 
-        <!-- Start/Stop -->
-        <Button
+        <!-- Buttons -->
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_start_stop"
             android:layout_width="match_parent"
             android:layout_height="56dp"
             android:text="开始模拟"
-            android:textSize="18sp"
-            android:backgroundTint="#4CAF50" />
+            android:textSize="16sp"
+            app:backgroundTint="@color/success"
+            app:cornerRadius="16dp"
+            app:iconGravity="textStart"
+            app:iconPadding="8dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_preview_track"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:text="预览轨迹"
+            android:textSize="14sp"
+            android:visibility="gone"
+            app:cornerRadius="16dp"
+            app:iconGravity="textStart"
+            app:iconPadding="8dp"
+            app:strokeColor="@color/md_primary" />
 
     </LinearLayout>
 </ScrollView>
