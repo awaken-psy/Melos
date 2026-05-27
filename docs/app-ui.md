@@ -16,8 +16,8 @@ Melos 采用 Material Design 3 设计语言，统一为 3-tab 底部导航界面
 
 使用 AutoCompleteTextView + ExposedDropdownMenu 组件，下拉选择预设场地：
 
-- 嘉定大操场
-- 同济四平操场
+- jd大操场
+- sp操场
 
 选择场地后，轨迹引擎会加载对应的预设跑道数据。
 

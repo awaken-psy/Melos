@@ -1,5 +1,7 @@
 # 开发环境
 
+面向**开发者**——从源码构建、调试、打包 Release 的完整指南。
+
 ## 环境要求
 
 | 工具 | 版本要求 |
@@ -15,18 +17,66 @@
 # 编译 Debug APK
 JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 ./gradlew :app:assembleDebug
 
-# 编译 Release APK（需要签名配置）
-JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 ./gradlew :app:assembleRelease
+# 运行单元测试
+JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 ./gradlew :app:testDebugUnitTest
 
 # 安装到设备
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 
-# 运行单元测试
-JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 ./gradlew :app:testDebugUnitTest
-
 # 清理构建产物
 JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 ./gradlew clean
 ```
+
+## 打包 Release APK
+
+Release 版本需要签名。如果没有已有密钥库，先生成一个：
+
+```bash
+keytool -genkey -v -keystore melos-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias melos
+```
+
+然后在 `app/build.gradle.kts` 中添加签名配置（或使用 `local.properties`）：
+
+```kotlin
+android {
+    signingConfigs {
+        create("release") {
+            storeFile = file("melos-release.jks")
+            storePassword = "你的密码"
+            keyAlias = "melos"
+            keyPassword = "你的密码"
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+            proguardFiles(...)
+        }
+    }
+}
+```
+
+构建 Release APK：
+
+```bash
+JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 ./gradlew :app:assembleRelease
+```
+
+产物路径：`app/build/outputs/apk/release/app-release.apk`
+
+> 当前项目 `isMinifyEnabled = false`，Release 版本不做代码混淆。LSPosed 模块的入口类必须保留原始类名，混淆会导致模块无法加载。
+
+### 快速打包（Debug 签名）
+
+如果只是需要分发给测试用户，也可以直接用 Debug 版本：
+
+```bash
+JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 ./gradlew :app:assembleDebug
+# 产物：app/build/outputs/apk/debug/app-debug.apk
+```
+
+Debug APK 功能与 Release 完全一致，只是签名不同。
 
 ## 开发调试
 
@@ -54,6 +104,7 @@ adb shell am force-stop com.tencent.mm
 ```
 
 如果是首次在 LSPosed 中勾选模块，需要完全重启手机：
+
 ```bash
 adb reboot
 ```
@@ -93,5 +144,5 @@ adb shell su -c "rm /data/local/tmp/melos_config.json"
 
 - **JDK 版本**：必须使用 JDK 17。JDK 21/25 EA 会导致 Kotlin 编译器崩溃
 - **Xposed API 版本**：使用 API 82，对应 LSPosed/Vector 的接口版本
-- **ProGuard**：Debug 版本不混淆，Release 版本需要配置 keep 规则以保留 hook 入口类
+- **ProGuard**：当前 Release 版本不混淆。如需开启混淆，必须 keep `MelosHookEntry` 及其 `handleLoadPackage` 方法
 - **签名**：Debug 使用默认 debug keystore，Release 需要配置自己的签名密钥

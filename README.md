@@ -4,7 +4,7 @@
 
 ## 背景
 
-同济大学课程攻防对抗项目——对方开发微信小程序体育锻炼检测系统（采集 GPS、海拔、轨迹、步频、WiFi、基站等），本组开发反制 app，通过 LSPosed 在 Android Framework 层注入自洽的虚拟传感器数据，绕过多维度检测。
+xx大学微信小程序体育锻炼检测系统反制 app（采集 GPS、海拔、轨迹、步频、WiFi、基站等），通过 LSPosed 在 Android Framework 层注入自洽的虚拟传感器数据，绕过多维度检测。
 
 ## 文档导航
 
@@ -21,9 +21,40 @@
 
 ## 技术方案
 
-- **设备**：Pixel 4 XL (Android 13), Magisk 30.7 + Vector(LSPosed) v2.0 + Shamiko v1.2.5
-- **原理**：Hook LocationManager / SensorManager / WifiManager / TelephonyManager，注入合成数据
-- **跨进程配置**：UI 写入 `/data/local/tmp/melos_config.json`，WeChat 进程中的 hook 读取
+Melos 是一个 LSPosed (Xposed) 模块，运行在已 root 的 Android 设备上。通过 Zygisk 在目标应用（微信）进程启动时注入，利用 Xposed 的方法 hook 机制拦截系统 API 调用，替换为自洽的虚拟数据。
+
+### 整体架构
+
+```
+┌─────────────┐     配置文件      ┌──────────────────────┐
+│  Melos App  │ ──── JSON ────→  │  Hook（微信进程内）    │
+│  (UI 进程)   │                  │  LocationManager      │
+│             │                  │  SensorManager        │
+│  采集器      │                  │  WifiManager          │
+│  轨迹引擎    │                  │  TelephonyManager     │
+│  指纹数据库  │                  │  AntiDetection        │
+└─────────────┘                  └──────────────────────┘
+```
+
+- **Melos App（UI 进程）**：Material Design 3 界面，负责场地选择、参数配置、轨迹预览、实地数据采集。配置通过共享 JSON 文件传递给 hook 进程。
+- **Hook 模块（微信进程内）**：在微信启动时由 LSPosed 加载，hook 系统 API，读取配置后注入虚拟的 GPS、传感器、WiFi、基站数据。
+
+### 数据注入原理
+
+Android 应用的位置和传感器数据都通过系统服务获取（`LocationManager`、`SensorManager` 等）。Melos 在 Framework 层拦截这些 API 调用：
+
+- **GPS**：hook `LocationManager` 的全部 7 种重载，返回由 Catmull-Rom spline 插值生成的轨迹坐标
+- **传感器**：独立 50Hz 注入循环，生成加速度计、陀螺仪、气压计、磁力计数据
+- **WiFi/基站**：从预先采集的真实指纹数据库中通过 KNN 查询返回一致的伪造数据
+- **反检测**：hook 文件系统、命令执行、包名查询等 API，隐藏 root 和 Xposed 环境
+
+### 跨进程通信
+
+Melos App 和 hook 运行在不同进程（后者在微信进程内），通过共享文件 `/data/local/tmp/melos_config.json` 通信。UI 写入配置，hook 读取后实时生效，无需重启微信。
+
+### 测试设备
+
+Pixel 4 XL (Android 13), Magisk 30.7 + Vector(LSPosed) v2.0 + Shamiko v1.2.5
 
 ## License
 
