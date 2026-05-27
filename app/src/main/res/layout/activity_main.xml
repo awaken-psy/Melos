@@ -5,6 +5,19 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
+    <!-- Top title bar -->
+    <TextView
+        android:id="@+id/tv_title"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:gravity="center"
+        android:text="模拟"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:textColor="#FFFFFF"
+        android:background="#1976D2"
+        android:elevation="4dp" />
+
     <androidx.fragment.app.FragmentContainerView
         android:id="@+id/nav_host"
         android:layout_width="match_parent"
@@ -15,6 +28,9 @@
         android:id="@+id/bottom_nav"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:background="#F5F5F5"
+        app:itemTextColor="@color/nav_text_color"
+        app:itemIconTint="@color/nav_text_color"
         app:menu="@menu/bottom_nav" />
 
 </LinearLayout>

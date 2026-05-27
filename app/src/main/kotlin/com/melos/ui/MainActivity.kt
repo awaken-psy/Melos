@@ -1,6 +1,7 @@
 package com.melos.ui
 
 import android.os.Bundle
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import com.google.android.material.bottomnavigation.BottomNavigationView
@@ -13,10 +14,13 @@ class MainActivity : AppCompatActivity() {
     private val logFragment = LogFragment()
 
     private var activeFragment: Fragment = simulateFragment
+    private lateinit var tvTitle: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        tvTitle = findViewById(R.id.tv_title)
 
         supportFragmentManager.beginTransaction().apply {
             add(R.id.nav_host, logFragment, "log").hide(logFragment)
@@ -26,18 +30,19 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<BottomNavigationView>(R.id.bottom_nav).setOnItemSelectedListener { item ->
             val target = when (item.itemId) {
-                R.id.nav_simulate -> simulateFragment
-                R.id.nav_collector -> collectorFragment
-                R.id.nav_log -> logFragment
-                else -> simulateFragment
+                R.id.nav_simulate -> simulateFragment to "模拟"
+                R.id.nav_collector -> collectorFragment to "采集"
+                R.id.nav_log -> logFragment to "日志"
+                else -> simulateFragment to "模拟"
             }
-            if (target != activeFragment) {
+            if (target.first != activeFragment) {
                 supportFragmentManager.beginTransaction().apply {
                     hide(activeFragment)
-                    show(target)
+                    show(target.first)
                 }.commit()
-                activeFragment = target
+                activeFragment = target.first
             }
+            tvTitle.text = target.second
             true
         }
     }
