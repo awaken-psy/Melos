@@ -140,12 +140,17 @@ class CollectorFragment : Fragment() {
 
     @SuppressLint("MissingPermission")
     private fun refreshWifiAndCell() {
-        val ctx = requireContext().applicationContext
-        val wm = ctx.getSystemService(android.content.Context.WIFI_SERVICE) as WifiManager
-        wm.startScan()
-        val tm = ctx.getSystemService(android.content.Context.TELEPHONY_SERVICE) as TelephonyManager
-        cellResults = tm.allCellInfo ?: emptyList()
-        wifiResults = wm.scanResults ?: emptyList()
+        try {
+            val ctx = requireContext().applicationContext
+            val wm = ctx.getSystemService(android.content.Context.WIFI_SERVICE) as WifiManager
+            wm.startScan()
+            wifiResults = wm.scanResults ?: emptyList()
+            val tm = ctx.getSystemService(android.content.Context.TELEPHONY_SERVICE) as TelephonyManager
+            cellResults = tm.allCellInfo ?: emptyList()
+        } catch (_: Exception) {
+            wifiResults = emptyList()
+            cellResults = emptyList()
+        }
     }
 
     private fun updateStatus() {
