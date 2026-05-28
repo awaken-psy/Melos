@@ -415,7 +415,10 @@ class CollectorFragment : Fragment() {
         val file = File(dir, "melos_${venueName.ifEmpty { "venue" }}_${System.currentTimeMillis() / 1000}.json")
         file.writeText(root.toString(2))
         MelosConfig.appendLog("I", "Collector", "导出: ${file.name} (${entries.size}条)")
-        Toast.makeText(requireContext(), "导出成功: ${file.name}", Toast.LENGTH_LONG).show()
+        val count = entries.size
+        entries.clear()
+        adapter.notifyDataSetChanged()
+        Toast.makeText(requireContext(), "已保存 $count 条数据到: ${file.absolutePath}", Toast.LENGTH_LONG).show()
     }
 
     // ── Helpers ──────────────────────────────────────────────────────

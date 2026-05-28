@@ -19,7 +19,7 @@ import kotlin.math.abs
  */
 class TrajectoryGenerator(
     private val trackProfile: TrackProfile,
-    private val meanSpeedMps: Double = 2.5,  // ~9 km/h, comfortable jog
+    var meanSpeedMps: Double = 2.5,  // ~9 km/h, comfortable jog
     private val speedVariation: Double = 0.15,  // ±15% speed variation
     private val wanderMeters: Double = 2.0,    // Max path wander from center line
     private val realSpeedAltitudeProfile: List<ProfilePoint>? = null,

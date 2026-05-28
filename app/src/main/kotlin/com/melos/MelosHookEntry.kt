@@ -108,12 +108,17 @@ class MelosHookEntry : IXposedHookLoadPackage {
             val file = File("/data/local/tmp/melos_config.json")
             if (!file.exists()) return
             val json = JSONObject(file.readText())
+            val prevConfig = hookConfig
             hookConfig = SimHookConfig(
                 enabled = json.optBoolean("enabled", true),
                 venueId = json.optString("venue_id", "jiading"),
                 speedMps = json.optDouble("speed_mps", 2.5),
                 laps = json.optInt("laps", 0),
             )
+            // Sync speed change to running generator
+            if (prevConfig.speedMps != hookConfig.speedMps) {
+                trajectoryGenerator.meanSpeedMps = hookConfig.speedMps
+            }
         } catch (_: Exception) {}
     }
 
