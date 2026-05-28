@@ -8,6 +8,9 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
 import com.melos.R
+import com.melos.trajectory.GeoUtils
+import org.json.JSONArray
+import org.json.JSONObject
 
 class MapActivity : AppCompatActivity() {
 
@@ -19,6 +22,7 @@ class MapActivity : AppCompatActivity() {
         val pointsJson = intent.getStringExtra("points") ?: "[]"
         val venue = intent.getStringExtra("venue") ?: ""
         val mode = intent.getStringExtra("mode") ?: "point"
+        val convertedJson = convertToGcj02(pointsJson)
 
         val webView = findViewById<WebView>(R.id.webView)
         webView.settings.javaScriptEnabled = true
@@ -27,7 +31,7 @@ class MapActivity : AppCompatActivity() {
         webView.webViewClient = WebViewClient()
         webView.webChromeClient = WebChromeClient()
 
-        val html = if (mode == "trajectory") buildTrajectoryHtml(pointsJson, venue) else buildPointHtml(pointsJson, venue)
+        val html = if (mode == "trajectory") buildTrajectoryHtml(convertedJson, venue) else buildPointHtml(convertedJson, venue)
         webView.loadDataWithBaseURL("https://unpkg.com", html, "text/html", "UTF-8", null)
     }
 
@@ -36,6 +40,23 @@ class MapActivity : AppCompatActivity() {
         val webView = findViewById<WebView>(R.id.webView)
         if (webView.canGoBack()) webView.goBack()
         else @Suppress("DEPRECATION") super.onBackPressed()
+    }
+
+    private fun convertToGcj02(pointsJson: String): String {
+        val arr = JSONArray(pointsJson)
+        val converted = JSONArray()
+        for (i in 0 until arr.length()) {
+            val obj = arr.getJSONObject(i)
+            val (gcjLat, gcjLng) = GeoUtils.wgs84ToGcj02(obj.getDouble("lat"), obj.getDouble("lng"))
+            val newObj = JSONObject()
+            newObj.put("lat", gcjLat)
+            newObj.put("lng", gcjLng)
+            if (obj.has("acc")) newObj.put("acc", obj.getDouble("acc"))
+            if (obj.has("wifi")) newObj.put("wifi", obj.getInt("wifi"))
+            if (obj.has("cell")) newObj.put("cell", obj.getInt("cell"))
+            converted.put(newObj)
+        }
+        return converted.toString()
     }
 
     private fun buildPointHtml(pointsJson: String, venue: String): String {
@@ -53,12 +74,12 @@ if(!pts.length){document.body.innerHTML='<h3 style="text-align:center;padding:40
 else{var latSum=0,lngSum=0;pts.forEach(function(p){latSum+=p.lat;lngSum+=p.lng;});
 var center=[latSum/pts.length,lngSum/pts.length];
 var map=L.map('map').setView(center,17);
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'OpenStreetMap'}).addTo(map);
+L.tileLayer('https://webrd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',{maxZoom:18}).addTo(map);
 var latlngs=[];pts.forEach(function(p,i){var icon=L.divIcon({className:'',html:'<div class="point-label">'+(i+1)+'</div>',iconSize:[24,24],iconAnchor:[12,12]});
 L.marker([p.lat,p.lng],{icon:icon}).addTo(map).bindPopup('<b>$escapedVenue 点'+(i+1)+'</b><br>'+p.lat.toFixed(6)+', '+p.lng.toFixed(6)+'<br>精度: '+p.acc.toFixed(1)+'m<br>WiFi: '+p.wifi+' AP | 基站: '+p.cell+' 小区');
 latlngs.push([p.lat,p.lng]);});
-if(latlngs.length>1){L.polyline(latlngs,{color:'#1976D2',weight:3,dashArray:'8,6'}).addTo(map);}
-map.fitBounds(L.featureGroup(pts.map(function(p){return L.marker([p.lat,p.lng]);})).getBounds().pad(0.3));}
+if(latlngs.length>1){L.polyline(latlngs,{color:'#1976D2',weight:3,dashArray:'8,6'}).addTo(map);map.fitBounds(L.featureGroup(pts.map(function(p){return L.marker([p.lat,p.lng]);})).getBounds().pad(0.3));}
+else if(latlngs.length===1){map.setView(latlngs[0],17);}}
 </script></body></html>""".trimIndent()
     }
 
@@ -78,7 +99,7 @@ if(!pts.length){document.body.innerHTML='<h3 style="text-align:center;padding:40
 else{var latSum=0,lngSum=0;pts.forEach(function(p){latSum+=p.lat;lngSum+=p.lng;});
 var center=[latSum/pts.length,lngSum/pts.length];
 var map=L.map('map').setView(center,17);
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'OpenStreetMap'}).addTo(map);
+L.tileLayer('https://webrd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',{maxZoom:18}).addTo(map);
 var latlngs=pts.map(function(p){return[p.lat,p.lng];});
 L.polyline(latlngs,{color:'#1976D2',weight:3,opacity:0.8}).addTo(map);
 var si=L.divIcon({className:'',html:'<div class="start-marker">S</div>',iconSize:[20,20],iconAnchor:[10,10]});

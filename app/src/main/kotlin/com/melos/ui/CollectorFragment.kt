@@ -50,6 +50,7 @@ class CollectorFragment : Fragment() {
     private lateinit var tvGps: TextView
     private lateinit var tvWifi: TextView
     private lateinit var tvCell: TextView
+    private lateinit var tvRecording: TextView
     private lateinit var listView: ListView
     private lateinit var adapter: CaptureAdapter
     private lateinit var btnCapture: Button
@@ -60,6 +61,7 @@ class CollectorFragment : Fragment() {
     private var recordingStartTime = 0L
     private var recordingHandler: Handler? = null
     private var scanRunnable: Runnable? = null
+    private var locationManager: LocationManager? = null
 
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(loc: Location) {
@@ -99,6 +101,7 @@ class CollectorFragment : Fragment() {
         tvGps = view.findViewById(R.id.tvGps)
         tvWifi = view.findViewById(R.id.tvWifi)
         tvCell = view.findViewById(R.id.tvCell)
+        tvRecording = view.findViewById(R.id.tvRecording)
         listView = view.findViewById(R.id.lvCaptures)
         btnCapture = view.findViewById(R.id.btnCapture)
         btnContinuous = view.findViewById(R.id.btnContinuous)
@@ -130,6 +133,8 @@ class CollectorFragment : Fragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         try { requireContext().unregisterReceiver(wifiScanReceiver) } catch (_: Exception) {}
+        locationManager?.removeUpdates(locationListener)
+        locationManager = null
     }
 
     // ── Permissions ──────────────────────────────────────────────────
@@ -172,6 +177,7 @@ class CollectorFragment : Fragment() {
     private fun startListening() {
         val ctx = requireContext().applicationContext
         val lm = ctx.getSystemService(android.content.Context.LOCATION_SERVICE) as LocationManager
+        locationManager = lm
         val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
         for (p in providers) {
             if (lm.isProviderEnabled(p)) {
@@ -226,14 +232,19 @@ class CollectorFragment : Fragment() {
 
     private fun updateStatus() {
         val loc = currentLocation
-        val prefix = if (isRecording) "● 录制中 " else ""
         tvGps.text = if (loc != null) {
-            "${prefix}GPS: ${String.format("%.6f", loc.latitude)}, ${String.format("%.6f", loc.longitude)}  精度${String.format("%.1f", loc.accuracy)}m"
+            "GPS: ${String.format("%.6f", loc.latitude)}, ${String.format("%.6f", loc.longitude)}  精度${String.format("%.1f", loc.accuracy)}m"
         } else {
             "GPS: 等待定位..."
         }
         tvWifi.text = "WiFi: ${wifiResults.size} 个 AP"
         tvCell.text = "基站: ${cellResults.size} 小区"
+        if (isRecording) {
+            tvRecording.text = "● 录制中  ${recordingSamples.size} 个采样"
+            tvRecording.visibility = View.VISIBLE
+        } else {
+            tvRecording.visibility = View.GONE
+        }
     }
 
     // ── Point Capture ─────────────────────────────────────────────────
@@ -294,7 +305,7 @@ class CollectorFragment : Fragment() {
 
     private fun stopContinuous() {
         isRecording = false
-        recordingHandler?.removeCallbacks(scanRunnable!!)
+        scanRunnable?.let { recordingHandler?.removeCallbacks(it) }
         recordingHandler = null
         scanRunnable = null
         requireContext().stopService(Intent(requireContext(), RecordingService::class.java))
@@ -303,7 +314,7 @@ class CollectorFragment : Fragment() {
 
     private fun finalizeRecording() {
         isRecording = false
-        recordingHandler?.removeCallbacks(scanRunnable!!)
+        scanRunnable?.let { recordingHandler?.removeCallbacks(it) }
         recordingHandler = null
         scanRunnable = null
         btnContinuous.text = "连续采集"

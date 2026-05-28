@@ -50,7 +50,17 @@
                 android:text="基站: 未获取"
                 android:textSize="13sp"
                 android:fontFamily="monospace"
-                android:textColor="@color/text_primary" />
+                android:textColor="@color/text_primary"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                android:id="@+id/tvRecording"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="13sp"
+                android:fontFamily="monospace"
+                android:textColor="@color/error"
+                android:visibility="gone" />
 
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
