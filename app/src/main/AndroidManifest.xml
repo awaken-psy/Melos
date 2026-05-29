@@ -38,6 +38,11 @@
             android:name=".TrajectoryMapActivity"
             android:theme="@style/Theme.Melos" />
 
+        <!-- Location picker for fixed-point check-in -->
+        <activity
+            android:name=".LocationPickerActivity"
+            android:theme="@style/Theme.Melos" />
+
         <!-- Collector foreground service -->
         <service
             android:name=".collector.RecordingService"
@@ -56,6 +61,10 @@
         <meta-data
             android:name="xposedscope"
             android:resource="@array/xposed_scope" />
-    </application>
+        <provider
+        android:name=".ConfigProvider"
+        android:authorities="com.melos.config"
+        android:exported="true" />
+</application>
 
 </manifest>

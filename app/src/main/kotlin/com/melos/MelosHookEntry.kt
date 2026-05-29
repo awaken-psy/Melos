@@ -1,6 +1,7 @@
 package com.melos
 
 import android.content.Context
+import android.net.Uri
 import android.hardware.SensorManager
 import android.location.Location
 import android.os.Bundle
@@ -17,6 +18,7 @@ import com.melos.trajectory.RealTrackLoader
 import com.melos.trajectory.TrackProfile
 import com.melos.trajectory.TrajectoryGenerator
 import com.melos.trajectory.TrajectoryPoint
+import com.melos.trajectory.StaticPointGenerator
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
@@ -88,16 +90,21 @@ class MelosHookEntry : IXposedHookLoadPackage {
     )
 
     private lateinit var trajectoryGenerator: TrajectoryGenerator
+    private var staticPointGenerator: StaticPointGenerator? = null
 
-    // Config state (refreshed every 5s from file)
+    // Config state — read via ContentProvider from Melos app
+    private var hookContext: Context? = null
     private var hookConfig = SimHookConfig()
     private var configLastReadMs = 0L
 
     private data class SimHookConfig(
         val enabled: Boolean = true,
+        val mode: String = "trajectory",
         val venueId: String = "jiading",
         val speedMps: Double = 2.5,
         val laps: Int = 0,  // 0 = unlimited
+        val fixedLat: Double = 0.0,
+        val fixedLng: Double = 0.0,
     )
 
     private fun refreshConfig() {
@@ -105,21 +112,37 @@ class MelosHookEntry : IXposedHookLoadPackage {
         if (now - configLastReadMs < 5000) return
         configLastReadMs = now
         try {
-            val file = File("/data/local/tmp/melos_config.json")
-            if (!file.exists()) return
-            val json = JSONObject(file.readText())
+            val ctx = hookContext ?: return
+            val bundle = ctx.contentResolver.call(
+                Uri.parse("content://com.melos.config"),
+                "get_config", null, null
+            ) ?: return
             val prevConfig = hookConfig
             hookConfig = SimHookConfig(
-                enabled = json.optBoolean("enabled", true),
-                venueId = json.optString("venue_id", "jiading"),
-                speedMps = json.optDouble("speed_mps", 2.5),
-                laps = json.optInt("laps", 0),
+                enabled = bundle.getBoolean("enabled", true),
+                mode = bundle.getString("mode") ?: "trajectory",
+                venueId = bundle.getString("venue_id") ?: "jiading",
+                speedMps = bundle.getFloat("speed_mps", 2.5f).toDouble(),
+                laps = bundle.getInt("laps", 0),
+                fixedLat = bundle.getFloat("fixed_lat", 0.0f).toDouble(),
+                fixedLng = bundle.getFloat("fixed_lng", 0.0f).toDouble(),
             )
+            XposedBridge.log("[$TAG] Config: speed=${hookConfig.speedMps} enabled=${hookConfig.enabled} venue=${hookConfig.venueId} laps=${hookConfig.laps}")
             // Sync speed change to running generator
-            if (prevConfig.speedMps != hookConfig.speedMps) {
+            if (prevConfig.speedMps != hookConfig.speedMps && ::trajectoryGenerator.isInitialized) {
                 trajectoryGenerator.meanSpeedMps = hookConfig.speedMps
             }
-        } catch (_: Exception) {}
+            // Rebuild static generator when fixed coordinates change
+            if (prevConfig.fixedLat != hookConfig.fixedLat || prevConfig.fixedLng != hookConfig.fixedLng) {
+                if (hookConfig.fixedLat != 0.0 && hookConfig.fixedLng != 0.0) {
+                    staticPointGenerator = StaticPointGenerator(
+                        LatLng(hookConfig.fixedLat, hookConfig.fixedLng)
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            XposedBridge.log("[$TAG] refreshConfig error: ${e.message}")
+        }
     }
 
     private fun selectTrackForVenue(venueId: String): TrackProfile {
@@ -609,8 +632,9 @@ class MelosHookEntry : IXposedHookLoadPackage {
                 "android.app.Application", lpparam.classLoader, "onCreate",
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
+                        hookContext = param.thisObject as android.content.Context
                         if (fusedHooksInstalled) return
-                        val ctx = param.thisObject as android.content.Context
+                        val ctx = hookContext!!
                         var cl: ClassLoader? = ctx.classLoader
                         while (cl != null && !fusedHooksInstalled) {
                             tryInstallFusedHooks(cl)
@@ -765,7 +789,24 @@ class MelosHookEntry : IXposedHookLoadPackage {
             (now - simulator.getStartTime()) / 1000.0
         }
 
-        // Generate next trajectory point
+        // ── Fixed-point mode: generate stationary GPS fixes ──
+        if (hookConfig.mode == "fixed_point") {
+            val gen = staticPointGenerator
+            if (gen != null) {
+                var point = gen.nextPoint(elapsedSeconds)
+                lastTrajectoryPoint = point
+
+                wifiCellHookManager?.updatePosition(point.position.lat, point.position.lng)
+
+                val location = createLocationFromTrajectory(point, provider)
+                lastSpoofedLocation = location
+                recentLocations.add(location)
+                if (recentLocations.size > maxRecentLocations) recentLocations.removeAt(0)
+                return location
+            }
+        }
+
+        // ── Trajectory mode: generate moving GPS fixes ──
         val prevDist = lastTrajectoryPoint?.elapsedDistanceMeters ?: 0.0
         var point = trajectoryGenerator.nextPoint(elapsedSeconds)
 

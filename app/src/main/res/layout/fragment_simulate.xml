@@ -12,8 +12,40 @@
         android:orientation="vertical"
         android:padding="20dp">
 
-        <!-- Venue Card -->
+        <!-- Mode Toggle -->
+        <com.google.android.material.button.MaterialButtonToggleGroup
+            android:id="@+id/toggle_mode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:selectionRequired="true"
+            app:singleSelection="true">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_mode_trajectory"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="轨迹模拟"
+                android:textSize="14sp"
+                app:cornerRadius="16dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_mode_fixed"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="定点打卡"
+                android:textSize="14sp"
+                app:cornerRadius="16dp" />
+
+        </com.google.android.material.button.MaterialButtonToggleGroup>
+
+        <!-- Trajectory mode: Venue Card -->
         <com.google.android.material.card.MaterialCardView
+            android:id="@+id/card_venue"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
@@ -64,8 +96,79 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- Fixed-point mode: Location Card -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/card_fixed_location"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone"
+            app:cardBackgroundColor="@color/md_surface_container_low"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/md_outline_variant"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="打卡位置"
+                    android:textSize="12sp"
+                    android:textColor="@color/md_on_surface_variant"
+                    android:letterSpacing="0.05"
+                    android:textAllCaps="true"
+                    android:layout_marginBottom="8dp" />
+
+                <!-- Saved locations dropdown -->
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/til_saved_locations"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                    app:boxCornerRadiusTopStart="8dp"
+                    app:boxCornerRadiusTopEnd="8dp"
+                    app:boxCornerRadiusBottomStart="8dp"
+                    app:boxCornerRadiusBottomEnd="8dp">
+
+                    <AutoCompleteTextView
+                        android:id="@+id/spinner_saved_location"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:minHeight="48dp"
+                        android:inputType="none"
+                        android:textSize="15sp"
+                        android:paddingTop="12dp"
+                        android:paddingBottom="12dp"
+                        android:hint="选择已保存的位置" />
+
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <!-- Add new location button -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_pick_location"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="8dp"
+                    android:text="选择新位置"
+                    android:textSize="14sp"
+                    app:cornerRadius="16dp"
+                    app:iconGravity="textStart"
+                    app:iconPadding="8dp"
+                    app:strokeColor="@color/md_primary" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- Pace Card -->
         <com.google.android.material.card.MaterialCardView
+            android:id="@+id/card_pace"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
@@ -133,6 +236,7 @@
 
         <!-- Laps Card -->
         <com.google.android.material.card.MaterialCardView
+            android:id="@+id/card_laps"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"

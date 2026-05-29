@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <WebView
+        android:id="@+id/webView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Quick navigation chips -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="12dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:orientation="horizontal"
+        android:gravity="center">
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chip_siping"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="四平体育场"
+            android:textSize="13sp"
+            app:chipBackgroundColor="@color/md_surface_container_low"
+            app:chipStrokeColor="@color/md_outline_variant"
+            app:chipStrokeWidth="1dp" />
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chip_jiading"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="嘉定体育场"
+            android:textSize="13sp"
+            app:chipBackgroundColor="@color/md_surface_container_low"
+            app:chipStrokeColor="@color/md_outline_variant"
+            app:chipStrokeWidth="1dp" />
+
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvCoord"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:background="#CC000000"
+        android:padding="8dp"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:text="点击地图选择位置" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnSave"
+        android:layout_width="wrap_content"
+        android:layout_height="48dp"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="16dp"
+        android:text="保存此位置"
+        android:textSize="14sp"
+        android:visibility="gone"
+        app:backgroundTint="@color/success"
+        app:cornerRadius="16dp"
+        app:iconGravity="textStart"
+        app:iconPadding="4dp" />
+
+</FrameLayout>

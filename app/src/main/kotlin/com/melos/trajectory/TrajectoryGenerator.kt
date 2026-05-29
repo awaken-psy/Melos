@@ -44,8 +44,17 @@ class TrajectoryGenerator(
     private var lapOffsetNorth = 0.0
     private var completedLaps = 0
 
+    // Previous actual position for self-consistent speed/bearing
+    private var previousActualPosition: LatLng? = null
+    private var previousTimestampMillis: Long = 0L
+
     // Track geometry caching
     private val cornerZones = detectCornerZones()
+
+    // Mean speed of the real profile, used to scale speeds to match user's desired pace.
+    // When user changes meanSpeedMps, the profile shape (fast on straights, slow on corners)
+    // is preserved but the overall magnitude is scaled.
+    private val profileMeanSpeed: Double = realSpeedAltitudeProfile?.map { it.speedMps }?.average() ?: meanSpeedMps
 
     /**
      * Identify corner zones on the track for appropriate speed modulation.
@@ -114,11 +123,29 @@ class TrajectoryGenerator(
 
         val timestampMillis = (elapsedSeconds * 1000).toLong()
 
+        // Derive speed and bearing from consecutive actual positions so
+        // reported kinematics are self-consistent with the coordinate stream.
+        val reportSpeed: Float
+        val reportBearing: Float
+        val prevPos = previousActualPosition
+        if (prevPos != null && dt > 0) {
+            val dtSeconds = dt
+            val dist = GeoUtils.haversineMeters(prevPos, actualPosition)
+            reportSpeed = (dist / dtSeconds).toFloat()
+            reportBearing = GeoUtils.bearingDeg(prevPos, actualPosition).toFloat()
+        } else {
+            // First point — fall back to model values
+            reportSpeed = currentSpeed.toFloat()
+            reportBearing = posOnTrack.bearingDeg.toFloat()
+        }
+        previousActualPosition = actualPosition
+        previousTimestampMillis = timestampMillis
+
         return TrajectoryPoint(
             position = actualPosition,
             altitudeMeters = altitude,
-            bearingDeg = posOnTrack.bearingDeg.toFloat(),
-            speedMps = currentSpeed.toFloat(),
+            bearingDeg = reportBearing,
+            speedMps = reportSpeed,
             accuracyMeters = calculateAccuracy(currentSpeed, elapsedSeconds),
             timestampMillis = timestampMillis,
             elapsedDistanceMeters = currentDistance,
@@ -134,9 +161,11 @@ class TrajectoryGenerator(
         val perimeter = trackProfile.perimeterMeters
         val fraction = (distance % perimeter) / perimeter
 
-        // Base speed: real profile or mathematical model
+        // Base speed: real profile (scaled to user's desired pace) or mathematical model
         val baseSpeed = if (realSpeedAltitudeProfile != null && realSpeedAltitudeProfile.size >= 2) {
-            interpolateProfile(fraction) { it.speedMps }.coerceIn(0.5, 6.0)
+            val rawProfileSpeed = interpolateProfile(fraction) { it.speedMps }
+            // Scale profile shape to user's desired mean speed
+            (rawProfileSpeed * meanSpeedMps / profileMeanSpeed).coerceIn(0.5, 6.0)
         } else {
             val relativeDist = distance % perimeter
             val inCorner = cornerZones.any { (start, end) ->
@@ -258,6 +287,8 @@ class TrajectoryGenerator(
         lastTimeSeconds = 0.0
         currentDistance = 0.0
         currentAccuracyMeters = 5.0f
+        previousActualPosition = null
+        previousTimestampMillis = 0L
     }
 
     /**
