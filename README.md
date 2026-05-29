@@ -25,8 +25,8 @@ Melos 是一个 LSPosed (Xposed) 模块，运行在已 root 的 Android 设备�
 
 ### 整体架构
 
-- **Melos App（UI 进程）**：Material Design 3 界面，负责场地选择、参数配置、轨迹预览、实地数据采集。配置通过共享 JSON 文件传递给 hook 进程。
-- **Hook 模块（微信进程内）**：在微信启动时由 LSPosed 加载，hook 系统 API（LocationManager / SensorManager / WifiManager / TelephonyManager），读取配置后注入虚拟的 GPS、传感器、WiFi、基站数据。
+- **Melos App（UI 进程）**：Material Design 3 界面，负责场地选择、配速/圈数配置、轨迹预览、实地数据采集、定点打卡。配置通过 `ContentProvider` 传递给 hook 进程。
+- **Hook 模块（微信进程内）**：在微信启动时由 LSPosed 加载，hook 系统 API（LocationManager / SensorManager / WifiManager / TelephonyManager），读取配置后注入虚拟的 GPS、传感器、WiFi、基站数据。支持 3:00-9:00/km 多配速切换、轨迹/定点双模式。
 
 ### 数据注入原理
 
@@ -39,7 +39,7 @@ Android 应用的位置和传感器数据都通过系统服务获取（`Location
 
 ### 跨进程通信
 
-Melos App 和 hook 运行在不同进程（后者在微信进程内），通过共享文件 `/data/local/tmp/melos_config.json` 通信。UI 写入配置，hook 读取后实时生效，无需重启微信。
+Melos App 和 hook 运行在不同进程（后者在微信进程内）。App 端将配置写入 SharedPreferences，hook 端通过 `ContentProvider`（标准 Android IPC）实时读取，无需共享文件。修改配速、场地等参数后 5 秒内自动生效，无需重启微信。
 
 ### 测试设备
 
