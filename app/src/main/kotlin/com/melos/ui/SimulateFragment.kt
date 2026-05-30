@@ -64,6 +64,12 @@ class SimulateFragment : Fragment() {
     private val tickRunnable = object : Runnable {
         override fun run() {
             if (!isRunning) return
+            // Guard: if startTime was never set (e.g. restored from config without persistence),
+            // use current time so the display starts from 00:00 instead of epoch.
+            if (runStartTimeMs == 0L) {
+                runStartTimeMs = System.currentTimeMillis()
+                saveRunStartTime()
+            }
             val elapsed = (System.currentTimeMillis() - runStartTimeMs) / 1000
             val min = (elapsed / 60).toInt()
             val sec = (elapsed % 60).toInt()

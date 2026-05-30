@@ -127,7 +127,7 @@ class MelosHookEntry : IXposedHookLoadPackage {
                 fixedLat = bundle.getFloat("fixed_lat", 0.0f).toDouble(),
                 fixedLng = bundle.getFloat("fixed_lng", 0.0f).toDouble(),
             )
-            XposedBridge.log("[$TAG] Config: speed=${hookConfig.speedMps} enabled=${hookConfig.enabled} venue=${hookConfig.venueId} laps=${hookConfig.laps}")
+            XposedBridge.log("[$TAG] Config: mode=${hookConfig.mode} speed=${hookConfig.speedMps} enabled=${hookConfig.enabled} venue=${hookConfig.venueId} laps=${hookConfig.laps} fixedLat=${hookConfig.fixedLat} fixedLng=${hookConfig.fixedLng} staticGen=${staticPointGenerator != null}")
             // Sync speed change to running generator
             if (prevConfig.speedMps != hookConfig.speedMps && ::trajectoryGenerator.isInitialized) {
                 trajectoryGenerator.meanSpeedMps = hookConfig.speedMps
